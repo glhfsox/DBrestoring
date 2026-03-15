@@ -9,4 +9,4 @@ build/
 backups/
 logs/
 backups/
-.txt
+*.txt
