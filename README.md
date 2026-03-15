@@ -116,19 +116,3 @@ sudo dbrestore schedule install --profile local_pg
 dbrestore schedule status --profile local_pg
 sudo dbrestore schedule remove --profile local_pg
 ```
-
-## Notes
-
-- PostgreSQL, MySQL/MariaDB, and MongoDB require their vendor dump/restore tools on `PATH`.
-- S3-backed storage requires valid S3 credentials and uses `output_dir` as a local staging area during backup creation.
-- SQLite backup and restore use Python's `sqlite3` API.
-- `dbrestore.yaml` is the canonical default config filename. `dbrestore.yml` still loads as a legacy fallback.
-- Slack notifications are best-effort only. Delivery failures are logged, but they do not turn a successful backup into a failed one.
-- The GUI launches with `dbrestore gui` or `dbrestore-gui` and uses the same YAML config and backup logic as the CLI.
-- `verify-latest` restores the newest backup from one profile into a separate target profile and then runs a connection test against that restored database.
-- Each backup run writes a payload file and a colocated `manifest.json`.
-- Run logs and manifests use the local machine timezone with second-level precision.
-- Retention cleanup runs after each successful backup when a retention policy is configured.
-- Schedule installation writes system-wide units to `/etc/systemd/system/` and per-profile env templates to `/etc/dbrestore/env/` by default.
-- Scheduled profiles use `systemd` timer presets (`hourly`, `daily`, `weekly`) with `Persistent=true` support for catch-up runs after downtime.
-- Run the install/remove commands with `sudo` so the CLI can write unit files and reload `systemd`.
