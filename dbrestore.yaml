@@ -1,0 +1,30 @@
+version: 1
+defaults:
+  output_dir: ./backups
+  log_dir: ./logs
+  compression: gzip
+  retention:
+    max_age_days: 5
+profiles:
+  postgres_local:
+    db_type: postgres
+    database: sql_course
+    host: localhost
+    port: 5432
+    username: testuser
+    password: '123'
+    compression: false
+    schedule:
+      preset: hourly
+      persistent: true
+  postgres_verify:
+    db_type: postgres
+    database: test
+    host: localhost
+    port: 5432
+    username: testuser
+    password: '123'
+    compression: true
+    schedule:
+      preset: hourly
+      persistent: true

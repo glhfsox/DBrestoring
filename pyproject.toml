@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dbrestore"
+version = "0.1.0"
+description = "CLI utility for backing up and restoring multiple database engines."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [
+  { name = "Artem Pashchenko" }
+]
+dependencies = [
+  "boto3>=1.35,<2.0",
+  "pydantic>=2.8,<3.0",
+  "PyMySQL>=1.1,<2.0",
+  "PyYAML>=6.0,<7.0",
+  "pymongo>=4.8,<5.0",
+  "psycopg[binary]>=3.2,<4.0",
+  "typer>=0.12,<1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3,<9.0",
+]
+
+[project.scripts]
+dbrestore = "dbrestore.cli:main"
+dbrestore-gui = "dbrestore.gui:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dbrestore"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]

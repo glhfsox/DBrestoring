@@ -1,0 +1,12 @@
+.txt
+__pycache__/
+.pytest_cache/
+*.pyc
+dist/
+build/
+*.egg-info/
+.venv/
+backups/
+logs/
+backups/
+.txt
