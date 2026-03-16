@@ -22,7 +22,15 @@ IDEA : https://roadmap.sh/projects/database-backup-utility
 
 -Incremental backup
 -Differential backup
--Full Windows/macOS scheduling support 
+-Full Windows/macOS scheduling support
+-Selective restore for MySQL/MariaDB
+-Selective restore for SQLite
+
+## Selective restore
+
+- PostgreSQL supports selective table restore via repeated `--table`.
+- MongoDB supports selective collection restore via repeated `--collection`.
+- MySQL/MariaDB and SQLite selective restore are intentionally rejected with the current backup formats.
 
 ## Installation
 
@@ -111,6 +119,8 @@ dbrestore test-connection --profile local_pg
 dbrestore backup --profile local_pg
 dbrestore verify-latest --profile local_pg --target-profile local_pg_verify
 dbrestore restore --profile local_pg --input ./backups/local_pg/20260315T120000_abcd1234
+dbrestore restore --profile local_pg --input ./backups/local_pg/20260315T120000_abcd1234 --table public.items --table public.orders
+dbrestore restore --profile local_mongo --input ./backups/local_mongo/20260315T120000_abcd1234 --collection users --collection audit
 dbrestore gui
 sudo dbrestore schedule install --profile local_pg
 dbrestore schedule status --profile local_pg
