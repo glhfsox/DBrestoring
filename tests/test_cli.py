@@ -146,6 +146,56 @@ profiles:
     assert row == ("widget",)
 
 
+def test_restore_command_rejects_selective_restore_for_sqlite(tmp_path: Path) -> None:
+    source = tmp_path / "source.sqlite3"
+    restored = tmp_path / "restored.sqlite3"
+    with sqlite3.connect(source) as connection:
+        connection.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT)")
+        connection.execute("INSERT INTO items (name) VALUES ('widget')")
+        connection.commit()
+
+    config_path = tmp_path / "dbrestore.yaml"
+    config_path.write_text(
+        f"""
+version: 1
+defaults:
+  output_dir: ./backups
+  log_dir: ./logs
+profiles:
+  sqlite_local:
+    db_type: sqlite
+    database: {source}
+
+  sqlite_restore:
+    db_type: sqlite
+    database: {restored}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    backup_result = runner.invoke(app, ["backup", "--profile", "sqlite_local", "--config", str(config_path)])
+    assert backup_result.exit_code == 0
+    run_dir = next((tmp_path / "backups" / "sqlite_local").iterdir())
+
+    restore_result = runner.invoke(
+        app,
+        [
+            "restore",
+            "--profile",
+            "sqlite_restore",
+            "--config",
+            str(config_path),
+            "--input",
+            str(run_dir),
+            "--table",
+            "items",
+        ],
+    )
+
+    assert restore_result.exit_code == 1
+    assert "Selective restore is not supported for db_type 'sqlite'" in restore_result.stderr
+
+
 def test_backup_retention_keeps_last_two_runs(tmp_path: Path) -> None:
     database_path = tmp_path / "data.sqlite3"
     with sqlite3.connect(database_path) as connection:
