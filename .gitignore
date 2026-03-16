@@ -9,3 +9,4 @@ backups/
 logs/
 backups/
 *.txt
+.yaml
