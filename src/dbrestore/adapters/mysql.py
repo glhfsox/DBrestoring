@@ -6,7 +6,9 @@ from uuid import uuid4
 import pymysql
 
 from dbrestore.adapters.base import CommandSpec, ExternalToolAdapter
+from dbrestore.config import ProfileModel
 from dbrestore.errors import DatabaseConnectionError, PreflightError
+from dbrestore.utils import Redactor
 
 
 class MySQLAdapter(ExternalToolAdapter):
@@ -23,13 +25,16 @@ class MySQLAdapter(ExternalToolAdapter):
     def artifact_extension(self) -> str:
         return ".sql"
 
-    def test_connection(self, profile: object) -> None:
+    def test_connection(self, profile: ProfileModel) -> None:
+        port = self._connection_port(profile)
+        username = self._connection_user(profile)
+        password = self._connection_password(profile)
         try:
             connection = pymysql.connect(
                 host=profile.effective_host,
-                port=profile.effective_port,
-                user=profile.username,
-                password=profile.password_value,
+                port=port,
+                user=username,
+                password=password,
                 database=profile.database,
                 connect_timeout=5,
             )
@@ -38,15 +43,18 @@ class MySQLAdapter(ExternalToolAdapter):
             label = "MariaDB" if self._db_type == "mariadb" else "MySQL"
             raise DatabaseConnectionError(f"{label} connection failed: {exc}") from exc
 
-    def validate_restore_target(self, profile: object) -> None:
+    def validate_restore_target(self, profile: ProfileModel) -> None:
         label = "MariaDB" if self._db_type == "mariadb" else "MySQL"
         table_name = f"__dbrestore_preflight_{uuid4().hex[:12]}"
+        port = self._connection_port(profile)
+        username = self._connection_user(profile)
+        password = self._connection_password(profile)
         try:
             connection = pymysql.connect(
                 host=profile.effective_host,
-                port=profile.effective_port,
-                user=profile.username,
-                password=profile.password_value,
+                port=port,
+                user=username,
+                password=password,
                 database=profile.database,
                 connect_timeout=5,
             )
@@ -66,13 +74,16 @@ class MySQLAdapter(ExternalToolAdapter):
         except Exception as exc:
             raise PreflightError(
                 f"{label} restore pre-check failed for database '{profile.database}': "
-                f"user '{profile.username}' cannot create and drop tables in the target database. "
+                f"user '{username}' cannot create and drop tables in the target database. "
                 "Grant CREATE and DROP on the restore target before restoring."
             ) from exc
         finally:
             connection.close()
 
-    def build_backup_command(self, profile: object, destination: Path) -> CommandSpec:
+    def build_backup_command(self, profile: ProfileModel, destination: Path) -> CommandSpec:
+        port = self._connection_port(profile)
+        username = self._connection_user(profile)
+        password = self._connection_password(profile)
         return CommandSpec(
             args=[
                 "mysqldump",
@@ -80,32 +91,56 @@ class MySQLAdapter(ExternalToolAdapter):
                 "--host",
                 profile.effective_host,
                 "--port",
-                str(profile.effective_port),
+                str(port),
                 "--user",
-                profile.username,
+                username,
                 "--result-file",
                 str(destination),
                 profile.database,
             ],
-            env={"MYSQL_PWD": profile.password_value or ""},
+            env={"MYSQL_PWD": password},
         )
 
-    def build_restore_command(self, profile: object, source: Path) -> CommandSpec:
+    def build_restore_command(
+        self,
+        profile: ProfileModel,
+        source: Path,
+        selection: list[str] | None = None,
+    ) -> CommandSpec:
+        del selection
+        port = self._connection_port(profile)
+        username = self._connection_user(profile)
+        password = self._connection_password(profile)
         return CommandSpec(
             args=[
                 "mysql",
                 "--host",
                 profile.effective_host,
                 "--port",
-                str(profile.effective_port),
+                str(port),
                 "--user",
-                profile.username,
+                username,
                 profile.database,
             ],
-            env={"MYSQL_PWD": profile.password_value or ""},
+            env={"MYSQL_PWD": password},
             stdin_path=source,
         )
 
-    def backup(self, profile: object, destination: Path, redactor: object) -> dict[str, str]:
+    def backup(self, profile: ProfileModel, destination: Path, redactor: Redactor) -> dict[str, str]:
         super().backup(profile, destination, redactor)
         return {"format": "sql"}
+
+    def _connection_port(self, profile: ProfileModel) -> int:
+        port = profile.effective_port
+        if port is None:
+            raise ValueError(f"{self._db_type} profiles require a port")
+        return port
+
+    def _connection_user(self, profile: ProfileModel) -> str:
+        username = profile.username
+        if username is None:
+            raise ValueError(f"{self._db_type} profiles require a username")
+        return username
+
+    def _connection_password(self, profile: ProfileModel) -> str:
+        return profile.password_value or ""

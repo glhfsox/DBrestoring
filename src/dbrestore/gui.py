@@ -92,6 +92,9 @@ class DBRestoreGUI:
         self.defaults_retention_keep_last_var = self.tk.StringVar()
         self.defaults_retention_max_age_var = self.tk.StringVar()
         self.restore_choice_var = self.tk.StringVar()
+        self.restore_filter_var = self.tk.StringVar()
+        self.restore_filter_label_var = self.tk.StringVar(value="Selective Restore Filter")
+        self.restore_filter_hint_var = self.tk.StringVar(value="")
         self.verify_target_profile_var = self.tk.StringVar()
         self.verify_hint_var = self.tk.StringVar(
             value="Use a separate disposable profile as the verification target."
@@ -313,9 +316,23 @@ class DBRestoreGUI:
             self.restore_choice_var,
             [],
         )
+        self.ttk.Label(actions_card, textvariable=self.restore_filter_label_var).grid(
+            row=3,
+            column=0,
+            sticky="w",
+            pady=(0, 10),
+            padx=(0, 12),
+        )
+        self.restore_filter_entry = self.ttk.Entry(actions_card, textvariable=self.restore_filter_var)
+        self.restore_filter_entry.grid(row=3, column=1, sticky="ew", pady=(0, 10))
+        self.ttk.Label(
+            actions_card,
+            textvariable=self.restore_filter_hint_var,
+            style="CardText.TLabel",
+        ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(0, 8))
         self.verify_target_combo = self._add_labeled_combo(
             actions_card,
-            3,
+            5,
             "Verify Into Profile",
             self.verify_target_profile_var,
             [],
@@ -324,10 +341,10 @@ class DBRestoreGUI:
             actions_card,
             textvariable=self.verify_hint_var,
             style="CardText.TLabel",
-        ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        ).grid(row=6, column=0, columnspan=2, sticky="w", pady=(4, 0))
 
         action_bar_2 = self.ttk.Frame(actions_card, style="Card.TFrame")
-        action_bar_2.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(10, 0))
+        action_bar_2.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(10, 0))
         action_bar_2.columnconfigure((0, 1), weight=1)
         self.ttk.Button(action_bar_2, text="Run Backup", style="Accent.TButton", command=self.run_backup_action).grid(row=0, column=0, sticky="ew", padx=(0, 8))
         self.restore_button = self.ttk.Button(
@@ -338,7 +355,7 @@ class DBRestoreGUI:
         )
         self.restore_button.grid(row=0, column=1, sticky="ew")
         action_bar_3 = self.ttk.Frame(actions_card, style="Card.TFrame")
-        action_bar_3.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        action_bar_3.grid(row=8, column=0, columnspan=2, sticky="ew", pady=(8, 0))
         action_bar_3.columnconfigure((0, 1), weight=1)
         self.verify_button = self.ttk.Button(
             action_bar_3,
@@ -602,7 +619,13 @@ class DBRestoreGUI:
             return
         self._run_async(
             f"Restoring '{record['run_id']}' into '{profile_name}'",
-            lambda: run_restore(profile_name=profile_name, input_path=Path(record["run_dir"]), config_path=self.config_path),
+            lambda: run_restore(
+                profile_name=profile_name,
+                input_path=Path(record["run_dir"]),
+                config_path=self.config_path,
+                tables=self._restore_filter_values() if _normalize_db_type_label(self.db_type_var.get().strip()) == "postgres" else None,
+                collections=self._restore_filter_values() if _normalize_db_type_label(self.db_type_var.get().strip()) == "mongo" else None,
+            ),
             callback=self._handle_restore_completed,
         )
 
@@ -706,6 +729,7 @@ class DBRestoreGUI:
         retention = profile.get("retention", {})
         self.retention_keep_last_var.set(_stringify_optional(retention.get("keep_last")))
         self.retention_max_age_var.set(_stringify_optional(retention.get("max_age_days")))
+        self.restore_filter_var.set("")
         self._sync_db_type_state()
         self.refresh_views()
         self.status_var.set(f"Selected profile '{profile_name}'")
@@ -720,6 +744,7 @@ class DBRestoreGUI:
         _set_widget_state(self.username_entry, not sqlite_only)
         _set_widget_state(self.password_entry, not sqlite_only)
         _set_widget_state(self.auth_database_entry, mongo)
+        self._refresh_restore_filter_state(db_type)
 
     def _build_candidate_config(self, profile_name: str) -> dict[str, Any]:
         candidate = {
@@ -1046,6 +1071,33 @@ class DBRestoreGUI:
         )
         _set_widget_state(self.verify_target_combo, False)
         _set_widget_state(self.verify_button, False)
+
+    def _refresh_restore_filter_state(self, db_type: str) -> None:
+        normalized = _normalize_db_type_label(db_type)
+        if normalized == "postgres":
+            self.restore_filter_label_var.set("Restore Tables")
+            self.restore_filter_hint_var.set(
+                "Optional. Enter comma-separated table names, for example public.items, public.orders."
+            )
+            _set_widget_state(self.restore_filter_entry, True)
+            return
+        if normalized == "mongo":
+            self.restore_filter_label_var.set("Restore Collections")
+            self.restore_filter_hint_var.set(
+                "Optional. Enter comma-separated collection names. Plain names are prefixed with the database automatically."
+            )
+            _set_widget_state(self.restore_filter_entry, True)
+            return
+        self.restore_filter_label_var.set("Selective Restore Filter")
+        self.restore_filter_hint_var.set(
+            "Selective restore is not supported for this database type with the current backup format."
+        )
+        self.restore_filter_var.set("")
+        _set_widget_state(self.restore_filter_entry, False)
+
+    def _restore_filter_values(self) -> list[str] | None:
+        values = [item.strip() for item in self.restore_filter_var.get().split(",") if item.strip()]
+        return values or None
 
 
 def _default_raw_config() -> dict[str, Any]:

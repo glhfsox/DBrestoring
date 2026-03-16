@@ -6,7 +6,9 @@ from uuid import uuid4
 import psycopg
 
 from dbrestore.adapters.base import CommandSpec, ExternalToolAdapter
+from dbrestore.config import ProfileModel
 from dbrestore.errors import DatabaseConnectionError, PreflightError
+from dbrestore.utils import Redactor
 
 
 class PostgresAdapter(ExternalToolAdapter):
@@ -17,10 +19,13 @@ class PostgresAdapter(ExternalToolAdapter):
     def required_tools(self) -> list[str]:
         return ["pg_dump", "pg_restore"]
 
+    def restore_filter_kind(self) -> str | None:
+        return "table"
+
     def artifact_extension(self) -> str:
         return ".dump"
 
-    def test_connection(self, profile: object) -> None:
+    def test_connection(self, profile: ProfileModel) -> None:
         try:
             with psycopg.connect(
                 host=profile.effective_host,
@@ -35,7 +40,7 @@ class PostgresAdapter(ExternalToolAdapter):
         except Exception as exc:
             raise DatabaseConnectionError(f"PostgreSQL connection failed: {exc}") from exc
 
-    def validate_restore_target(self, profile: object) -> None:
+    def validate_restore_target(self, profile: ProfileModel) -> None:
         table_name = f"__dbrestore_preflight_{uuid4().hex[:12]}"
         try:
             with psycopg.connect(
@@ -65,7 +70,7 @@ class PostgresAdapter(ExternalToolAdapter):
                 f"PostgreSQL restore pre-check failed for database '{profile.database}': {exc}"
             ) from exc
 
-    def build_backup_command(self, profile: object, destination: Path) -> CommandSpec:
+    def build_backup_command(self, profile: ProfileModel, destination: Path) -> CommandSpec:
         return CommandSpec(
             args=[
                 "pg_dump",
@@ -83,13 +88,22 @@ class PostgresAdapter(ExternalToolAdapter):
             env={"PGPASSWORD": profile.password_value or ""},
         )
 
-    def build_restore_command(self, profile: object, source: Path) -> CommandSpec:
-        return CommandSpec(
-            args=[
-                "pg_restore",
-                "--clean",
-                "--if-exists",
-                "--no-owner",
+    def build_restore_command(
+        self,
+        profile: ProfileModel,
+        source: Path,
+        selection: list[str] | None = None,
+    ) -> CommandSpec:
+        args = [
+            "pg_restore",
+            "--clean",
+            "--if-exists",
+            "--no-owner",
+        ]
+        for item in selection or []:
+            args.extend(["--table", item])
+        args.extend(
+            [
                 "--host",
                 profile.effective_host,
                 "--port",
@@ -99,10 +113,13 @@ class PostgresAdapter(ExternalToolAdapter):
                 "--dbname",
                 profile.database,
                 str(source),
-            ],
+            ]
+        )
+        return CommandSpec(
+            args=args,
             env={"PGPASSWORD": profile.password_value or ""},
         )
 
-    def backup(self, profile: object, destination: Path, redactor: object) -> dict[str, str]:
+    def backup(self, profile: ProfileModel, destination: Path, redactor: Redactor) -> dict[str, str]:
         super().backup(profile, destination, redactor)
         return {"format": "pg_dump_custom"}

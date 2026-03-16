@@ -355,11 +355,11 @@ def get_storage_backend(config: object) -> StorageBackend:
 
 def _build_s3_client(storage_config: Any) -> Any:
     try:
-        import boto3
+        from boto3.session import Session
     except ImportError as exc:
         raise ConfigError("S3 storage requires boto3 to be installed") from exc
 
-    session = boto3.session.Session(
+    session = Session(
         aws_access_key_id=storage_config.access_key_id,
         aws_secret_access_key=storage_config.secret_access_key_value,
         aws_session_token=storage_config.session_token_value,
