@@ -1,10 +1,13 @@
+#sample config file with the main profile (postgres_local)
+#and a profile to verify that backup went okay 
 version: 1
 defaults:
   output_dir: ./backups
   log_dir: ./logs
   compression: gzip
   retention:
-    max_age_days: 5
+    max_age_days: 1
+storage: {}
 profiles:
   postgres_local:
     db_type: postgres
