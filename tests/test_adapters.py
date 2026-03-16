@@ -53,6 +53,25 @@ def test_mysql_builds_expected_restore_command(tmp_path: Path) -> None:
     assert command.env["MYSQL_PWD"] == "secret"
 
 
+def test_postgres_builds_expected_selective_restore_command(tmp_path: Path) -> None:
+    profile = ProfileModel(
+        db_type="postgres",
+        host="db.local",
+        port=5432,
+        username="app",
+        password="secret",
+        database="appdb",
+    )
+    adapter = PostgresAdapter()
+    source = tmp_path / "backup.dump"
+
+    command = adapter.build_restore_command(profile, source, selection=["public.items", "public.orders"])
+
+    assert command.args[:4] == ["pg_restore", "--clean", "--if-exists", "--no-owner"]
+    assert command.args[4:8] == ["--table", "public.items", "--table", "public.orders"]
+    assert command.env["PGPASSWORD"] == "secret"
+
+
 def test_mongo_builds_archive_commands() -> None:
     profile = ProfileModel(
         db_type="mongo",
@@ -72,6 +91,26 @@ def test_mongo_builds_archive_commands() -> None:
     assert "--uri" in backup_command.args
     assert restore_command.args[0] == "mongorestore"
     assert "--nsInclude" in restore_command.args
+
+
+def test_mongo_builds_selective_restore_command() -> None:
+    profile = ProfileModel(
+        db_type="mongo",
+        host="mongo.local",
+        port=27017,
+        username="app",
+        password="secret",
+        database="appdb",
+        auth_database="admin",
+    )
+    adapter = MongoAdapter()
+
+    selection = adapter.normalize_restore_selection(profile, ["users", "appdb.audit"])
+    command = adapter.build_restore_command(profile, Path("/tmp/backup.archive"), selection=selection)
+
+    assert selection == ["appdb.users", "appdb.audit"]
+    assert command.args[:3] == ["mongorestore", "--drop", "--archive=/tmp/backup.archive"]
+    assert command.args[3:7] == ["--nsInclude", "appdb.users", "--nsInclude", "appdb.audit"]
 
 
 def test_sqlite_backup_and_restore_round_trip(tmp_path: Path) -> None:
