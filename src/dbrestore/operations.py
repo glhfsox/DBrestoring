@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from dbrestore.adapters import get_adapter
+from dbrestore.adapters.base import DatabaseAdapter
 from dbrestore.config import AppConfig, DEFAULT_CONFIG_PATH, ProfileModel, load_config
 from dbrestore.errors import ArtifactError, ConfigError, DBRestoreError, PreflightError
 from dbrestore.logging import RunLogger
@@ -133,6 +134,8 @@ def run_restore(
     input_path: Path,
     config_path: Path = DEFAULT_CONFIG_PATH,
     console: Callable[[str], None] | None = None,
+    tables: list[str] | None = None,
+    collections: list[str] | None = None,
     notify: bool = True,
 ) -> dict[str, Any]:
     config = load_config(config_path)
@@ -146,6 +149,12 @@ def run_restore(
         redactor.add(notification_settings.slack.webhook_url_value)
     logger = RunLogger(config.log_file_path(), console=console)
     started_at = current_time()
+    selection = _resolve_restore_selection(
+        adapter=adapter,
+        profile=profile,
+        tables=tables,
+        collections=collections,
+    )
     resolved = storage.resolve_restore_input(input_path)
     resolved_artifact = resolved.artifact_path
     manifest = resolved.manifest
@@ -162,6 +171,8 @@ def run_restore(
             "profile": profile_name,
             "db_type": profile.db_type,
             "artifact_path": str(resolved_artifact),
+            "restore_selection": selection or [],
+            "restore_selection_kind": adapter.restore_filter_kind(),
         },
     )
 
@@ -176,13 +187,15 @@ def run_restore(
                 temp_dir = Path(stack.enter_context(tempfile.TemporaryDirectory()))
                 restored_name = resolved_artifact.stem
                 source_path = gunzip_decompress(resolved_artifact, temp_dir / restored_name)
-            adapter.restore(profile, source_path, redactor)
+            adapter.restore(profile, source_path, redactor, selection=selection)
 
         finished_at = current_time()
         result = {
             "profile": profile_name,
             "db_type": profile.db_type,
             "artifact_path": str(resolved_artifact),
+            "restore_selection": selection or [],
+            "restore_selection_kind": adapter.restore_filter_kind(),
             "started_at": format_timestamp(started_at),
             "finished_at": format_timestamp(finished_at),
             "duration_ms": _duration_ms(started_at, finished_at),
@@ -197,6 +210,8 @@ def run_restore(
             "profile": profile_name,
             "db_type": profile.db_type,
             "artifact_path": str(resolved_artifact),
+            "restore_selection": selection or [],
+            "restore_selection_kind": adapter.restore_filter_kind(),
             "error": message,
         }
         logger.log_event("restore.failed", payload)
@@ -387,6 +402,37 @@ def _collect_profile_validation_issues(
         if shutil.which(tool) is None:
             issues.append(f"[{profile_name}] Required tool not found on PATH: {tool}")
     return issues
+
+
+def _resolve_restore_selection(
+    *,
+    adapter: DatabaseAdapter,
+    profile: ProfileModel,
+    tables: list[str] | None,
+    collections: list[str] | None,
+) -> list[str] | None:
+    requested_tables = [item.strip() for item in (tables or []) if item.strip()]
+    requested_collections = [item.strip() for item in (collections or []) if item.strip()]
+    if requested_tables and requested_collections:
+        raise ConfigError("Use either --table or --collection for selective restore, not both.")
+
+    kind = adapter.restore_filter_kind()
+    if not requested_tables and not requested_collections:
+        return None
+
+    if kind == "table":
+        if requested_collections:
+            raise ConfigError(f"Profile '{profile.db_type}' restore uses --table, not --collection.")
+        return adapter.normalize_restore_selection(profile, requested_tables)
+
+    if kind == "collection":
+        if requested_tables:
+            raise ConfigError(f"Profile '{profile.db_type}' restore uses --collection, not --table.")
+        return adapter.normalize_restore_selection(profile, requested_collections)
+
+    raise ConfigError(
+        f"Selective restore is not supported for db_type '{profile.db_type}' with the current backup format."
+    )
 
 
 def _validate_backup_preflight(output_dir: Path, required_tools: list[str]) -> None:

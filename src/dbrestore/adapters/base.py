@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from dbrestore.config import ProfileModel
 from dbrestore.errors import CommandExecutionError
 from dbrestore.utils import Redactor
 
@@ -59,33 +60,56 @@ class DatabaseAdapter(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def test_connection(self, profile: Any) -> None:
+    def test_connection(self, profile: ProfileModel) -> None:
         raise NotImplementedError
 
     @abstractmethod
-    def backup(self, profile: Any, destination: Path, redactor: Redactor) -> dict[str, Any]:
+    def backup(self, profile: ProfileModel, destination: Path, redactor: Redactor) -> dict[str, Any]:
         raise NotImplementedError
 
     @abstractmethod
-    def restore(self, profile: Any, source: Path, redactor: Redactor) -> None:
+    def restore(
+        self,
+        profile: ProfileModel,
+        source: Path,
+        redactor: Redactor,
+        selection: list[str] | None = None,
+    ) -> None:
         raise NotImplementedError
 
-    def validate_restore_target(self, profile: Any) -> None:
+    def validate_restore_target(self, profile: ProfileModel) -> None:
         return None
+
+    def restore_filter_kind(self) -> str | None:
+        return None
+
+    def normalize_restore_selection(self, profile: ProfileModel, selection: list[str]) -> list[str]:
+        return selection
 
 
 class ExternalToolAdapter(DatabaseAdapter, ABC):
     @abstractmethod
-    def build_backup_command(self, profile: Any, destination: Path) -> CommandSpec:
+    def build_backup_command(self, profile: ProfileModel, destination: Path) -> CommandSpec:
         raise NotImplementedError
 
     @abstractmethod
-    def build_restore_command(self, profile: Any, source: Path) -> CommandSpec:
+    def build_restore_command(
+        self,
+        profile: ProfileModel,
+        source: Path,
+        selection: list[str] | None = None,
+    ) -> CommandSpec:
         raise NotImplementedError
 
-    def backup(self, profile: Any, destination: Path, redactor: Redactor) -> dict[str, Any]:
+    def backup(self, profile: ProfileModel, destination: Path, redactor: Redactor) -> dict[str, Any]:
         run_command(self.build_backup_command(profile, destination), redactor)
         return {}
 
-    def restore(self, profile: Any, source: Path, redactor: Redactor) -> None:
-        run_command(self.build_restore_command(profile, source), redactor)
+    def restore(
+        self,
+        profile: ProfileModel,
+        source: Path,
+        redactor: Redactor,
+        selection: list[str] | None = None,
+    ) -> None:
+        run_command(self.build_restore_command(profile, source, selection), redactor)

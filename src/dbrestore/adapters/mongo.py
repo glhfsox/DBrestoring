@@ -7,7 +7,9 @@ from uuid import uuid4
 from pymongo import MongoClient
 
 from dbrestore.adapters.base import CommandSpec, ExternalToolAdapter
+from dbrestore.config import ProfileModel
 from dbrestore.errors import DatabaseConnectionError, PreflightError
+from dbrestore.utils import Redactor
 
 
 class MongoAdapter(ExternalToolAdapter):
@@ -18,10 +20,13 @@ class MongoAdapter(ExternalToolAdapter):
     def required_tools(self) -> list[str]:
         return ["mongodump", "mongorestore"]
 
+    def restore_filter_kind(self) -> str | None:
+        return "collection"
+
     def artifact_extension(self) -> str:
         return ".archive"
 
-    def test_connection(self, profile: object) -> None:
+    def test_connection(self, profile: ProfileModel) -> None:
         try:
             client = MongoClient(self._build_connection_uri(profile), serverSelectionTimeoutMS=5000)
             client.admin.command("ping")
@@ -29,7 +34,7 @@ class MongoAdapter(ExternalToolAdapter):
         except Exception as exc:
             raise DatabaseConnectionError(f"MongoDB connection failed: {exc}") from exc
 
-    def validate_restore_target(self, profile: object) -> None:
+    def validate_restore_target(self, profile: ProfileModel) -> None:
         collection_name = f"__dbrestore_preflight_{uuid4().hex[:12]}"
         client = None
         try:
@@ -48,7 +53,7 @@ class MongoAdapter(ExternalToolAdapter):
             if client is not None:
                 client.close()
 
-    def build_backup_command(self, profile: object, destination: Path) -> CommandSpec:
+    def build_backup_command(self, profile: ProfileModel, destination: Path) -> CommandSpec:
         return CommandSpec(
             args=[
                 "mongodump",
@@ -60,24 +65,44 @@ class MongoAdapter(ExternalToolAdapter):
             ]
         )
 
-    def build_restore_command(self, profile: object, source: Path) -> CommandSpec:
-        return CommandSpec(
-            args=[
-                "mongorestore",
-                "--drop",
-                f"--archive={source}",
-                "--nsInclude",
-                f"{profile.database}.*",
+    def normalize_restore_selection(self, profile: ProfileModel, selection: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for item in selection:
+            candidate = item.strip()
+            if not candidate:
+                continue
+            if "." not in candidate:
+                candidate = f"{profile.database}.{candidate}"
+            normalized.append(candidate)
+        return normalized
+
+    def build_restore_command(
+        self,
+        profile: ProfileModel,
+        source: Path,
+        selection: list[str] | None = None,
+    ) -> CommandSpec:
+        args = [
+            "mongorestore",
+            "--drop",
+            f"--archive={source}",
+        ]
+        ns_includes = selection or [f"{profile.database}.*"]
+        for item in ns_includes:
+            args.extend(["--nsInclude", item])
+        args.extend(
+            [
                 "--uri",
                 self._build_connection_uri(profile),
             ]
         )
+        return CommandSpec(args=args)
 
-    def backup(self, profile: object, destination: Path, redactor: object) -> dict[str, str]:
+    def backup(self, profile: ProfileModel, destination: Path, redactor: Redactor) -> dict[str, str]:
         super().backup(profile, destination, redactor)
         return {"format": "mongo_archive"}
 
-    def _build_connection_uri(self, profile: object) -> str:
+    def _build_connection_uri(self, profile: ProfileModel) -> str:
         host = profile.effective_host
         port = profile.effective_port
         database = profile.database

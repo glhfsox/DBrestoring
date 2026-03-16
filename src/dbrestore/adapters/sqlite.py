@@ -5,8 +5,9 @@ from pathlib import Path
 from uuid import uuid4
 
 from dbrestore.adapters.base import DatabaseAdapter
+from dbrestore.config import ProfileModel
 from dbrestore.errors import DatabaseConnectionError, PreflightError
-from dbrestore.utils import ensure_directory
+from dbrestore.utils import Redactor, ensure_directory
 
 
 class SQLiteAdapter(DatabaseAdapter):
@@ -20,7 +21,7 @@ class SQLiteAdapter(DatabaseAdapter):
     def artifact_extension(self) -> str:
         return ".sqlite"
 
-    def test_connection(self, profile: object) -> None:
+    def test_connection(self, profile: ProfileModel) -> None:
         path = profile.resolved_database_path()
         if not path.exists():
             raise DatabaseConnectionError(f"SQLite database file not found: {path}")
@@ -31,7 +32,7 @@ class SQLiteAdapter(DatabaseAdapter):
         except Exception as exc:
             raise DatabaseConnectionError(f"SQLite connection failed: {exc}") from exc
 
-    def validate_restore_target(self, profile: object) -> None:
+    def validate_restore_target(self, profile: ProfileModel) -> None:
         target_path = profile.resolved_database_path()
         table_name = f"__dbrestore_preflight_{uuid4().hex[:12]}"
         try:
@@ -45,7 +46,7 @@ class SQLiteAdapter(DatabaseAdapter):
                 "ensure the target database file and parent directory are writable."
             ) from exc
 
-    def backup(self, profile: object, destination: Path, redactor: object) -> dict[str, str]:
+    def backup(self, profile: ProfileModel, destination: Path, redactor: Redactor) -> dict[str, str]:
         source_path = profile.resolved_database_path()
         if not source_path.exists():
             raise DatabaseConnectionError(f"SQLite database file not found: {source_path}")
@@ -55,7 +56,14 @@ class SQLiteAdapter(DatabaseAdapter):
             source_conn.backup(destination_conn)
         return {"format": "sqlite_backup"}
 
-    def restore(self, profile: object, source: Path, redactor: object) -> None:
+    def restore(
+        self,
+        profile: ProfileModel,
+        source: Path,
+        redactor: Redactor,
+        selection: list[str] | None = None,
+    ) -> None:
+        del redactor, selection
         target_path = profile.resolved_database_path()
         ensure_directory(target_path.parent)
         with sqlite3.connect(source) as source_conn, sqlite3.connect(target_path) as target_conn:

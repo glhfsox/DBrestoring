@@ -42,12 +42,24 @@ def restore_command(
     profile: str = typer.Option(..., "--profile", "-p", help="Profile name from the YAML config."),
     input_path: Path = typer.Option(..., "--input", help="Backup artifact path or run directory."),
     config: Path = typer.Option(DEFAULT_CONFIG_PATH, "--config", "-c", help="Path to YAML configuration."),
+    table: list[str] | None = typer.Option(
+        None,
+        "--table",
+        help="PostgreSQL table to restore. Repeat this option for multiple tables.",
+    ),
+    collection: list[str] | None = typer.Option(
+        None,
+        "--collection",
+        help="MongoDB collection to restore. Repeat this option for multiple collections.",
+    ),
 ) -> None:
     try:
         run_restore(
             profile_name=profile,
             input_path=input_path,
             config_path=config,
+            tables=table,
+            collections=collection,
             console=typer.echo,
         )
     except DBRestoreError as exc:
