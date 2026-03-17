@@ -1,3 +1,8 @@
+"""This file keeps the app's shared exception types in one place.
+Higher layers raise these errors instead of leaking random low-level exceptions directly to CLI or GUI users.
+That makes failures easier to classify, display, and test across the whole project.
+If you want clearer error handling, this hierarchy is the first thing to extend."""
+
 from __future__ import annotations
 
 

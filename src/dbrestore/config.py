@@ -1,3 +1,8 @@
+"""This module loads and validates the app configuration from YAML.
+It turns raw user input into typed models that the rest of the system can trust.
+Environment placeholders, defaults, aliases, and schedule or storage options are resolved here before runtime starts.
+If something feels wrong at the profile level, this file is usually the first place to inspect."""
+
 from __future__ import annotations
 
 from pathlib import Path

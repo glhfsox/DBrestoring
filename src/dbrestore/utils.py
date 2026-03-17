@@ -1,3 +1,8 @@
+"""This file holds small shared helpers used across many layers of the app.
+It includes things like timestamps, safe path handling, compression, env placeholder parsing, and secret redaction.
+None of these helpers define product behavior on their own, but they keep repeated details out of the main flows.
+When several modules need the same low-level utility, it usually belongs here."""
+
 from __future__ import annotations
 
 import gzip

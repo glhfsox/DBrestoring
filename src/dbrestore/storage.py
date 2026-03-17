@@ -1,3 +1,8 @@
+"""This module abstracts where backup artifacts live after they are created.
+Operations prepare a run, then storage backends handle local folders, S3 uploads, downloads for restore, and retention cleanup.
+That separation lets backup logic stay the same even when the destination changes.
+If artifacts are missing, misnamed, or stored remotely, this file is usually the place to inspect."""
+
 from __future__ import annotations
 
 import json

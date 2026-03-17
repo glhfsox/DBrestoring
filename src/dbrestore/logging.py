@@ -1,3 +1,8 @@
+"""This file is responsible for structured run logging.
+It writes machine-friendly JSONL events while optionally echoing short human messages to the console.
+Operations call into this logger at important lifecycle moments so backup, restore, schedule, and verification runs can be traced later.
+If you want to understand what really happened during a run, this log stream is the source of truth."""
+
 from __future__ import annotations
 
 import json

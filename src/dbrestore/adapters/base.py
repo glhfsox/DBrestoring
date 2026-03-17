@@ -1,3 +1,8 @@
+"""This file defines the common contract for all database adapters.
+Operations code talks to adapters through this shared interface and does not care whether the target is Postgres, MySQL, MongoDB, or SQLite.
+Concrete adapters translate those generic requests into native tools, connection checks, and restore rules for their own engine.
+If backup or restore behavior differs per database, this layer is where that difference should live."""
+
 from __future__ import annotations
 
 import os

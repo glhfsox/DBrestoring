@@ -1,3 +1,8 @@
+"""This is the orchestration layer of the application.
+It ties together config loading, adapter selection, storage, logging, retention, notifications, and verification into one coherent flow.
+CLI and GUI mainly delegate here, so this file defines how a backup or restore run behaves end to end.
+If you want the quickest mental model of the system, understand this module before the lower-level pieces."""
+
 from __future__ import annotations
 
 import json

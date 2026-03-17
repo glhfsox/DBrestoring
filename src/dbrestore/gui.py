@@ -1,3 +1,8 @@
+"""This module provides the desktop interface on top of the same core services as the CLI.
+The window collects user input, starts background tasks, and renders status, history, and restore actions.
+It should stay mostly orchestration and presentation, not a second place for business rules.
+When GUI behavior feels inconsistent with the CLI, the bug is often in how this layer calls operations."""
+
 from __future__ import annotations
 
 import argparse

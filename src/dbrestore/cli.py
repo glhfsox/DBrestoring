@@ -1,3 +1,8 @@
+"""This module exposes the command-line interface and maps commands to operations.
+It stays intentionally thin: parse user input, call the right service function, print a clean result.
+All actual backup, restore, verification, and scheduling rules live deeper in the app.
+That keeps CLI behavior and GUI behavior consistent because both hit the same core logic."""
+
 from __future__ import annotations
 
 from pathlib import Path

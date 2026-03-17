@@ -1,3 +1,8 @@
+"""This module bridges the app with Linux systemd scheduling.
+It turns profile schedule settings into installed service and timer units, plus env files for unattended runs.
+The actual backup work still happens through the normal CLI and operations flow.
+So this layer is about automation plumbing, not about backup mechanics themselves."""
+
 from __future__ import annotations
 
 import grp
