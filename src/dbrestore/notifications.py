@@ -1,3 +1,8 @@
+"""This module handles outbound notifications such as Slack messages.
+Operations send high-level events here after important outcomes like completed or failed backups.
+Delivery is intentionally separated from business logic so notifications stay optional and replaceable.
+If alerting changes in the future, this file is where that integration should evolve."""
+
 from __future__ import annotations
 
 import json

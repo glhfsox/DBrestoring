@@ -1,3 +1,8 @@
+"""This module stores small shared data models used across the app.
+These models describe artifacts like backup manifests in a stable, serializable shape.
+They sit below operations and storage, giving both sides a common language for metadata.
+If a run produces a file plus structured details about it, that shape is usually defined here."""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
@@ -22,4 +27,3 @@ class BackupManifest:
 
     def to_dict(self) -> dict[str, Any]:
         return json_safe(asdict(self))
-
