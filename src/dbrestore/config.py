@@ -9,11 +9,24 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, SecretStr, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    SecretStr,
+    field_validator,
+    model_validator,
+)
 from yaml.constructor import ConstructorError
 
 from dbrestore.errors import ConfigError
-from dbrestore.utils import collect_env_placeholders, ensure_directory, expand_env_placeholders, expand_user_path
+from dbrestore.utils import (
+    collect_env_placeholders,
+    ensure_directory,
+    expand_env_placeholders,
+    expand_user_path,
+)
 
 DEFAULT_CONFIG_PATH = Path("dbrestore.yaml")
 LEGACY_DEFAULT_CONFIG_PATH = Path("dbrestore.yml")
@@ -56,7 +69,9 @@ class UniqueKeyLoader(yaml.SafeLoader):
     pass
 
 
-def _construct_unique_mapping(loader: yaml.SafeLoader, node: yaml.nodes.MappingNode, deep: bool = False) -> dict[Any, Any]:
+def _construct_unique_mapping(
+    loader: yaml.SafeLoader, node: yaml.nodes.MappingNode, deep: bool = False
+) -> dict[Any, Any]:
     mapping: dict[Any, Any] = {}
     for key_node, value_node in node.value:
         key = loader.construct_object(key_node, deep=deep)
@@ -83,8 +98,8 @@ class DefaultsModel(BaseModel):
     output_dir: Path = Path("./backups")
     log_dir: Path = Path("./logs")
     compression: Literal["gzip", "none"] = "gzip"
-    retention: "RetentionModel | None" = None
-    notifications: "NotificationsModel | None" = None
+    retention: RetentionModel | None = None
+    notifications: NotificationsModel | None = None
 
 
 class RetentionModel(BaseModel):
@@ -101,7 +116,7 @@ class RetentionModel(BaseModel):
         return value
 
     @model_validator(mode="after")
-    def validate_retention(self) -> "RetentionModel":
+    def validate_retention(self) -> RetentionModel:
         if self.keep_last is None and self.max_age_days is None:
             raise ValueError("retention requires at least one of keep_last or max_age_days")
         return self
@@ -195,7 +210,7 @@ class ProfileModel(BaseModel):
         return value
 
     @model_validator(mode="after")
-    def validate_profile(self) -> "ProfileModel":
+    def validate_profile(self) -> ProfileModel:
         if self.db_type == "sqlite":
             if not self.database:
                 raise ValueError("sqlite profiles require a database path")
@@ -272,7 +287,7 @@ class StorageModel(BaseModel):
         return value.strip().strip("/")
 
     @model_validator(mode="after")
-    def validate_storage(self) -> "StorageModel":
+    def validate_storage(self) -> StorageModel:
         if self.type == "local":
             return self
         if not self.bucket or not self.bucket.strip():
@@ -326,7 +341,9 @@ class AppConfig(BaseModel):
             return self.profiles[name]
         except KeyError as exc:
             available = ", ".join(sorted(self.profiles))
-            raise ConfigError(f"Profile '{name}' not found. Available profiles: {available}") from exc
+            raise ConfigError(
+                f"Profile '{name}' not found. Available profiles: {available}"
+            ) from exc
 
     def output_dir_for(self, profile: ProfileModel, override: Path | None = None) -> Path:
         if override is not None:
@@ -363,10 +380,14 @@ class AppConfig(BaseModel):
         if selected_profile is not None:
             profile = self.get_profile(selected_profile)
             if profile.schedule is None:
-                raise ConfigError(f"Profile '{selected_profile}' does not have a schedule configured")
+                raise ConfigError(
+                    f"Profile '{selected_profile}' does not have a schedule configured"
+                )
             return {selected_profile: profile}
 
-        scheduled = {name: profile for name, profile in self.profiles.items() if profile.schedule is not None}
+        scheduled = {
+            name: profile for name, profile in self.profiles.items() if profile.schedule is not None
+        }
         if not scheduled:
             raise ConfigError("No scheduled profiles found in config")
         return scheduled
@@ -403,7 +424,9 @@ def validate_raw_config_data(
     except Exception as exc:
         raise ConfigError(f"Invalid configuration: {exc}") from exc
 
-    resolved_source = source_path.resolve() if source_path is not None else DEFAULT_CONFIG_PATH.resolve()
+    resolved_source = (
+        source_path.resolve() if source_path is not None else DEFAULT_CONFIG_PATH.resolve()
+    )
     config.set_source(resolved_source)
     return config
 
@@ -427,7 +450,9 @@ def collect_profile_env_vars(config_path: Path, profile_name: str) -> list[str]:
     profile_data = profiles[profile_name]
     merged = {
         "defaults": defaults if isinstance(defaults, dict) else {},
-        "storage": raw_data.get("storage", {}) if isinstance(raw_data.get("storage", {}), dict) else {},
+        "storage": raw_data.get("storage", {})
+        if isinstance(raw_data.get("storage", {}), dict)
+        else {},
         "profile": profile_data if isinstance(profile_data, dict) else {},
     }
     return sorted(collect_env_placeholders(merged))

@@ -20,11 +20,11 @@ IDEA : https://roadmap.sh/projects/database-backup-utility
 
 ## Under construction
 
--Incremental backup
--Differential backup
--Full Windows/macOS scheduling support
--Selective restore for MySQL/MariaDB
--Selective restore for SQLite
+- Incremental backup
+- Differential backup
+- Full Windows/macOS scheduling support
+- Selective restore for MySQL/MariaDB
+- Selective restore for SQLite
 
 ## Selective restore
 
@@ -42,6 +42,12 @@ Or for isolated CLI usage:
 
 ```bash
 pipx install .
+```
+
+For development:
+
+```bash
+pip install -e '.[dev]'
 ```
 
 ## Example configuration

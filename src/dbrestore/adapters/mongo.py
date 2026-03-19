@@ -98,7 +98,9 @@ class MongoAdapter(ExternalToolAdapter):
         )
         return CommandSpec(args=args)
 
-    def backup(self, profile: ProfileModel, destination: Path, redactor: Redactor) -> dict[str, str]:
+    def backup(
+        self, profile: ProfileModel, destination: Path, redactor: Redactor
+    ) -> dict[str, str]:
         super().backup(profile, destination, redactor)
         return {"format": "mongo_archive"}
 

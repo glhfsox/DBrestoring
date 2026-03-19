@@ -126,7 +126,9 @@ class MySQLAdapter(ExternalToolAdapter):
             stdin_path=source,
         )
 
-    def backup(self, profile: ProfileModel, destination: Path, redactor: Redactor) -> dict[str, str]:
+    def backup(
+        self, profile: ProfileModel, destination: Path, redactor: Redactor
+    ) -> dict[str, str]:
         super().backup(profile, destination, redactor)
         return {"format": "sql"}
 

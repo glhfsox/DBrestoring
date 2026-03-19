@@ -56,7 +56,9 @@ def install_schedule(
     resolved_unit_dir = _resolve_path(unit_dir, field_name="unit_dir")
     resolved_env_dir = _resolve_path(env_dir, field_name="env_dir")
     env_vars = collect_profile_env_vars(resolved_config_path, profile_name)
-    schedule_paths = _build_schedule_paths(profile_name, resolved_unit_dir, resolved_env_dir, env_vars)
+    schedule_paths = _build_schedule_paths(
+        profile_name, resolved_unit_dir, resolved_env_dir, env_vars
+    )
     user_name, group_name = _resolve_run_identity(run_as_user, run_as_group)
 
     if not force:
@@ -133,7 +135,9 @@ def remove_schedule(
     schedule_paths = _build_schedule_paths(profile_name, resolved_unit_dir, resolved_env_dir, [])
 
     _run_systemctl(["disable", "--now", schedule_paths.timer_name], check=False)
-    _run_systemctl(["reset-failed", schedule_paths.timer_name, schedule_paths.service_name], check=False)
+    _run_systemctl(
+        ["reset-failed", schedule_paths.timer_name, schedule_paths.service_name], check=False
+    )
 
     removed_files: list[str] = []
     for path in (schedule_paths.timer_path, schedule_paths.service_path):
@@ -141,7 +145,11 @@ def remove_schedule(
             path.unlink()
             removed_files.append(str(path))
 
-    if delete_env_file and schedule_paths.env_file_path is not None and schedule_paths.env_file_path.exists():
+    if (
+        delete_env_file
+        and schedule_paths.env_file_path is not None
+        and schedule_paths.env_file_path.exists()
+    ):
         schedule_paths.env_file_path.unlink()
         removed_files.append(str(schedule_paths.env_file_path))
 
@@ -171,7 +179,9 @@ def schedule_status(
     resolved_unit_dir = _resolve_path(unit_dir, field_name="unit_dir")
     resolved_env_dir = _resolve_path(env_dir, field_name="env_dir")
     env_vars = collect_profile_env_vars(resolved_config_path, profile_name)
-    schedule_paths = _build_schedule_paths(profile_name, resolved_unit_dir, resolved_env_dir, env_vars)
+    schedule_paths = _build_schedule_paths(
+        profile_name, resolved_unit_dir, resolved_env_dir, env_vars
+    )
 
     service_exists = schedule_paths.service_path.exists()
     timer_exists = schedule_paths.timer_path.exists()
@@ -184,7 +194,9 @@ def schedule_status(
         "service_exists": service_exists,
         "timer_exists": timer_exists,
         "env_file_path": str(schedule_paths.env_file_path) if schedule_paths.env_vars else None,
-        "env_file_exists": bool(schedule_paths.env_file_path and schedule_paths.env_file_path.exists()),
+        "env_file_exists": bool(
+            schedule_paths.env_file_path and schedule_paths.env_file_path.exists()
+        ),
         "env_vars": env_vars,
         "on_calendar": profile.schedule.on_calendar,
         "persistent": profile.schedule.persistent,
@@ -298,7 +310,9 @@ def _build_schedule_paths(
 def _sanitize_unit_name(profile_name: str) -> str:
     sanitized = re.sub(r"[^A-Za-z0-9_.@-]+", "-", profile_name).strip("-")
     if not sanitized:
-        raise SchedulingError(f"Unable to derive a valid systemd unit name from profile '{profile_name}'")
+        raise SchedulingError(
+            f"Unable to derive a valid systemd unit name from profile '{profile_name}'"
+        )
     return sanitized
 
 

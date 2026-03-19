@@ -8,14 +8,15 @@ from __future__ import annotations
 import json
 import shutil
 import tempfile
+from collections.abc import Callable
 from contextlib import ExitStack
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from dbrestore.adapters import get_adapter
 from dbrestore.adapters.base import DatabaseAdapter
-from dbrestore.config import AppConfig, DEFAULT_CONFIG_PATH, ProfileModel, load_config
+from dbrestore.config import DEFAULT_CONFIG_PATH, AppConfig, ProfileModel, load_config
 from dbrestore.errors import ArtifactError, ConfigError, DBRestoreError, PreflightError
 from dbrestore.logging import RunLogger
 from dbrestore.models import BackupManifest
@@ -64,7 +65,9 @@ def run_backup(
     storage = storage_backend or get_storage_backend(config)
 
     _validate_backup_preflight(output_dir, adapter.required_tools())
-    prepared = storage.prepare_backup_paths(profile_name, output_dir, started_at, adapter.artifact_extension())
+    prepared = storage.prepare_backup_paths(
+        profile_name, output_dir, started_at, adapter.artifact_extension()
+    )
 
     logger.print(f"Starting backup for profile '{profile_name}'")
     logger.log_event(
@@ -277,7 +280,9 @@ def run_verify_latest_backup(
     source_profile = config.get_profile(source_profile_name)
     target_profile = config.get_profile(target_profile_name)
     if source_profile_name == target_profile_name:
-        raise ConfigError("Verification target profile must be different from the backup source profile")
+        raise ConfigError(
+            "Verification target profile must be different from the backup source profile"
+        )
     if source_profile.db_type != target_profile.db_type:
         raise ConfigError(
             f"Verification requires matching db_type values. Source is '{source_profile.db_type}', "
@@ -427,12 +432,16 @@ def _resolve_restore_selection(
 
     if kind == "table":
         if requested_collections:
-            raise ConfigError(f"Profile '{profile.db_type}' restore uses --table, not --collection.")
+            raise ConfigError(
+                f"Profile '{profile.db_type}' restore uses --table, not --collection."
+            )
         return adapter.normalize_restore_selection(profile, requested_tables)
 
     if kind == "collection":
         if requested_tables:
-            raise ConfigError(f"Profile '{profile.db_type}' restore uses --collection, not --table.")
+            raise ConfigError(
+                f"Profile '{profile.db_type}' restore uses --collection, not --table."
+            )
         return adapter.normalize_restore_selection(profile, requested_collections)
 
     raise ConfigError(
@@ -497,7 +506,7 @@ def apply_retention_policy(
     if policy.max_age_days is not None:
         cutoff = current_time() - timedelta(days=policy.max_age_days)
         for run in runs:
-            if run.finished_at < cutoff.astimezone(timezone.utc):
+            if run.finished_at < cutoff.astimezone(UTC):
                 entry = deletion_reasons.setdefault(run.run_dir, {"run": run, "reasons": set()})
                 entry["reasons"].add("max_age_days")
 
@@ -520,7 +529,9 @@ def apply_retention_policy(
         )
 
     if deleted_runs:
-        logger.print(f"Retention removed {len(deleted_runs)} old backup run(s) for profile '{profile_name}'")
+        logger.print(
+            f"Retention removed {len(deleted_runs)} old backup run(s) for profile '{profile_name}'"
+        )
 
     return {
         "deleted_count": len(deleted_runs),
@@ -600,18 +611,18 @@ def list_run_log_events(
 def _history_sort_key(item: dict[str, Any]) -> datetime:
     finished_at = item.get("finished_at")
     if not finished_at:
-        return datetime.min.replace(tzinfo=timezone.utc)
+        return datetime.min.replace(tzinfo=UTC)
     try:
-        return parse_timestamp(str(finished_at)).astimezone(timezone.utc)
+        return parse_timestamp(str(finished_at)).astimezone(UTC)
     except ValueError:
-        return datetime.min.replace(tzinfo=timezone.utc)
+        return datetime.min.replace(tzinfo=UTC)
 
 
 def _event_sort_key(item: dict[str, Any]) -> datetime:
     timestamp = item.get("timestamp")
     if not timestamp:
-        return datetime.min.replace(tzinfo=timezone.utc)
+        return datetime.min.replace(tzinfo=UTC)
     try:
-        return parse_timestamp(str(timestamp)).astimezone(timezone.utc)
+        return parse_timestamp(str(timestamp)).astimezone(UTC)
     except ValueError:
-        return datetime.min.replace(tzinfo=timezone.utc)
+        return datetime.min.replace(tzinfo=UTC)

@@ -10,7 +10,7 @@ import shutil
 import tempfile
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -18,7 +18,12 @@ from uuid import uuid4
 
 from dbrestore.errors import ArtifactError, ConfigError
 from dbrestore.models import BackupManifest
-from dbrestore.utils import ensure_directory, expand_user_path, format_storage_timestamp, parse_timestamp
+from dbrestore.utils import (
+    ensure_directory,
+    expand_user_path,
+    format_storage_timestamp,
+    parse_timestamp,
+)
 
 
 @dataclass(frozen=True)
@@ -223,7 +228,9 @@ class S3StorageBackend(StorageBackend):
         started_at: datetime,
         extension: str,
     ) -> PreparedBackupPaths:
-        return self.local_backend.prepare_backup_paths(profile_name, output_dir, started_at, extension)
+        return self.local_backend.prepare_backup_paths(
+            profile_name, output_dir, started_at, extension
+        )
 
     def finalize_backup(
         self,
@@ -421,4 +428,4 @@ def _join_s3_key(*parts: str) -> str:
 
 
 def _finished_at_from_manifest(manifest: dict[str, Any]) -> datetime:
-    return parse_timestamp(str(manifest["finished_at"])).astimezone(timezone.utc)
+    return parse_timestamp(str(manifest["finished_at"])).astimezone(UTC)

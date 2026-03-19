@@ -19,4 +19,3 @@ profiles:
     db_type: sqlite
     database: {database_path}
 """.strip()
-

@@ -11,7 +11,9 @@ from dbrestore.utils import Redactor, expand_env_placeholders
 
 
 def test_expand_env_placeholders_reports_missing() -> None:
-    expanded, missing = expand_env_placeholders({"password": "${DB_PASSWORD}", "host": "localhost"}, environ={})
+    expanded, missing = expand_env_placeholders(
+        {"password": "${DB_PASSWORD}", "host": "localhost"}, environ={}
+    )
     assert expanded["password"] == "${DB_PASSWORD}"
     assert missing == {"DB_PASSWORD"}
 
@@ -224,7 +226,9 @@ profiles:
 
     assert notifications is not None
     assert notifications.slack is not None
-    assert notifications.slack.webhook_url_value == "https://hooks.slack.test/services/T000/B000/XXXX"
+    assert (
+        notifications.slack.webhook_url_value == "https://hooks.slack.test/services/T000/B000/XXXX"
+    )
     assert "backup.completed" in notifications.slack.events
 
 

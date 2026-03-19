@@ -69,7 +69,9 @@ class DatabaseAdapter(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def backup(self, profile: ProfileModel, destination: Path, redactor: Redactor) -> dict[str, Any]:
+    def backup(
+        self, profile: ProfileModel, destination: Path, redactor: Redactor
+    ) -> dict[str, Any]:
         raise NotImplementedError
 
     @abstractmethod
@@ -106,7 +108,9 @@ class ExternalToolAdapter(DatabaseAdapter, ABC):
     ) -> CommandSpec:
         raise NotImplementedError
 
-    def backup(self, profile: ProfileModel, destination: Path, redactor: Redactor) -> dict[str, Any]:
+    def backup(
+        self, profile: ProfileModel, destination: Path, redactor: Redactor
+    ) -> dict[str, Any]:
         run_command(self.build_backup_command(profile, destination), redactor)
         return {}
 
