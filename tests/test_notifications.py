@@ -51,7 +51,9 @@ def test_backup_success_does_not_fail_when_slack_notification_fails(
 
     assert result["profile"] == "sqlite_local"
     log_file = tmp_path / "logs" / "runs.jsonl"
-    events = [json.loads(line)["event"] for line in log_file.read_text(encoding="utf-8").splitlines()]
+    events = [
+        json.loads(line)["event"] for line in log_file.read_text(encoding="utf-8").splitlines()
+    ]
     assert "backup.completed" in events
     assert "notification.failed" in events
 
@@ -85,7 +87,9 @@ def _create_sqlite_source(tmp_path: Path) -> Path:
     return database_path
 
 
-def _write_notification_config(tmp_path: Path, database_path: Path, events: list[str] | None = None) -> Path:
+def _write_notification_config(
+    tmp_path: Path, database_path: Path, events: list[str] | None = None
+) -> Path:
     config_path = tmp_path / "dbrestore.yaml"
     events_block = ""
     if events is not None:

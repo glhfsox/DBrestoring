@@ -4,6 +4,7 @@ import sqlite3
 from pathlib import Path
 
 import pytest
+from pydantic import SecretStr
 
 from dbrestore.adapters import mongo as mongo_module
 from dbrestore.adapters import mysql as mysql_module
@@ -17,13 +18,17 @@ from dbrestore.errors import PreflightError
 from dbrestore.utils import Redactor
 
 
+def _secret(value: str) -> SecretStr:
+    return SecretStr(value)
+
+
 def test_postgres_builds_expected_backup_command(tmp_path: Path) -> None:
     profile = ProfileModel(
         db_type="postgres",
         host="db.local",
         port=5432,
         username="app",
-        password="secret",
+        password=_secret("secret"),
         database="appdb",
     )
     adapter = PostgresAdapter()
@@ -40,7 +45,7 @@ def test_mysql_builds_expected_restore_command(tmp_path: Path) -> None:
         host="db.local",
         port=3306,
         username="app",
-        password="secret",
+        password=_secret("secret"),
         database="appdb",
     )
     adapter = MySQLAdapter()
@@ -59,13 +64,15 @@ def test_postgres_builds_expected_selective_restore_command(tmp_path: Path) -> N
         host="db.local",
         port=5432,
         username="app",
-        password="secret",
+        password=_secret("secret"),
         database="appdb",
     )
     adapter = PostgresAdapter()
     source = tmp_path / "backup.dump"
 
-    command = adapter.build_restore_command(profile, source, selection=["public.items", "public.orders"])
+    command = adapter.build_restore_command(
+        profile, source, selection=["public.items", "public.orders"]
+    )
 
     assert command.args[:4] == ["pg_restore", "--clean", "--if-exists", "--no-owner"]
     assert command.args[4:8] == ["--table", "public.items", "--table", "public.orders"]
@@ -78,7 +85,7 @@ def test_mongo_builds_archive_commands() -> None:
         host="mongo.local",
         port=27017,
         username="app",
-        password="secret",
+        password=_secret("secret"),
         database="appdb",
         auth_database="admin",
     )
@@ -99,14 +106,16 @@ def test_mongo_builds_selective_restore_command() -> None:
         host="mongo.local",
         port=27017,
         username="app",
-        password="secret",
+        password=_secret("secret"),
         database="appdb",
         auth_database="admin",
     )
     adapter = MongoAdapter()
 
     selection = adapter.normalize_restore_selection(profile, ["users", "appdb.audit"])
-    command = adapter.build_restore_command(profile, Path("/tmp/backup.archive"), selection=selection)
+    command = adapter.build_restore_command(
+        profile, Path("/tmp/backup.archive"), selection=selection
+    )
 
     assert selection == ["appdb.users", "appdb.audit"]
     assert command.args[:3] == ["mongorestore", "--drop", "--archive=/tmp/backup.archive"]
@@ -146,13 +155,13 @@ def test_postgres_restore_precheck_reports_missing_public_schema_permissions(
         host="db.local",
         port=5432,
         username="app",
-        password="secret",
+        password=_secret("secret"),
         database="appdb",
     )
     adapter = PostgresAdapter()
 
     class FakeCursor:
-        def __enter__(self) -> "FakeCursor":
+        def __enter__(self) -> FakeCursor:
             return self
 
         def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
@@ -162,7 +171,7 @@ def test_postgres_restore_precheck_reports_missing_public_schema_permissions(
             raise RuntimeError("permission denied for schema public")
 
     class FakeConnection:
-        def __enter__(self) -> "FakeConnection":
+        def __enter__(self) -> FakeConnection:
             return self
 
         def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
@@ -188,7 +197,7 @@ def test_mysql_restore_precheck_exercises_create_and_drop(
         host="db.local",
         port=3306,
         username="app",
-        password="secret",
+        password=_secret("secret"),
         database="appdb",
     )
     adapter = MySQLAdapter()
@@ -230,7 +239,7 @@ def test_mongo_restore_precheck_exercises_collection_write_and_drop(
         host="mongo.local",
         port=27017,
         username="app",
-        password="secret",
+        password=_secret("secret"),
         database="appdb",
         auth_database="admin",
     )

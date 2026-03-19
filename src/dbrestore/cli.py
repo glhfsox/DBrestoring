@@ -11,8 +11,20 @@ import typer
 
 from dbrestore.config import DEFAULT_CONFIG_PATH
 from dbrestore.errors import DBRestoreError
-from dbrestore.operations import run_backup, run_restore, run_test_connection, run_validate_config, run_verify_latest_backup
-from dbrestore.scheduler import DEFAULT_ENV_DIR, DEFAULT_SYSTEMD_UNIT_DIR, install_schedule, remove_schedule, schedule_status
+from dbrestore.operations import (
+    run_backup,
+    run_restore,
+    run_test_connection,
+    run_validate_config,
+    run_verify_latest_backup,
+)
+from dbrestore.scheduler import (
+    DEFAULT_ENV_DIR,
+    DEFAULT_SYSTEMD_UNIT_DIR,
+    install_schedule,
+    remove_schedule,
+    schedule_status,
+)
 
 app = typer.Typer(help="Back up and restore supported databases.", no_args_is_help=True)
 schedule_app = typer.Typer(help="Manage systemd-based backup schedules.")
@@ -26,9 +38,15 @@ def _handle_error(exc: DBRestoreError) -> None:
 @app.command("backup")
 def backup_command(
     profile: str = typer.Option(..., "--profile", "-p", help="Profile name from the YAML config."),
-    config: Path = typer.Option(DEFAULT_CONFIG_PATH, "--config", "-c", help="Path to YAML configuration."),
-    output_dir: Path | None = typer.Option(None, "--output-dir", help="Override the configured output directory."),
-    no_compress: bool = typer.Option(False, "--no-compress", help="Disable gzip compression for this backup."),
+    config: Path = typer.Option(
+        DEFAULT_CONFIG_PATH, "--config", "-c", help="Path to YAML configuration."
+    ),
+    output_dir: Path | None = typer.Option(
+        None, "--output-dir", help="Override the configured output directory."
+    ),
+    no_compress: bool = typer.Option(
+        False, "--no-compress", help="Disable gzip compression for this backup."
+    ),
 ) -> None:
     try:
         run_backup(
@@ -46,7 +64,9 @@ def backup_command(
 def restore_command(
     profile: str = typer.Option(..., "--profile", "-p", help="Profile name from the YAML config."),
     input_path: Path = typer.Option(..., "--input", help="Backup artifact path or run directory."),
-    config: Path = typer.Option(DEFAULT_CONFIG_PATH, "--config", "-c", help="Path to YAML configuration."),
+    config: Path = typer.Option(
+        DEFAULT_CONFIG_PATH, "--config", "-c", help="Path to YAML configuration."
+    ),
     table: list[str] | None = typer.Option(
         None,
         "--table",
@@ -74,7 +94,9 @@ def restore_command(
 @app.command("test-connection")
 def test_connection_command(
     profile: str = typer.Option(..., "--profile", "-p", help="Profile name from the YAML config."),
-    config: Path = typer.Option(DEFAULT_CONFIG_PATH, "--config", "-c", help="Path to YAML configuration."),
+    config: Path = typer.Option(
+        DEFAULT_CONFIG_PATH, "--config", "-c", help="Path to YAML configuration."
+    ),
 ) -> None:
     try:
         result = run_test_connection(profile_name=profile, config_path=config)
@@ -85,7 +107,9 @@ def test_connection_command(
 
 @app.command("validate-config")
 def validate_config_command(
-    config: Path = typer.Option(DEFAULT_CONFIG_PATH, "--config", "-c", help="Path to YAML configuration."),
+    config: Path = typer.Option(
+        DEFAULT_CONFIG_PATH, "--config", "-c", help="Path to YAML configuration."
+    ),
 ) -> None:
     try:
         result = run_validate_config(config_path=config)
@@ -96,7 +120,9 @@ def validate_config_command(
 
 @app.command("gui")
 def gui_command(
-    config: Path = typer.Option(DEFAULT_CONFIG_PATH, "--config", "-c", help="Path to YAML configuration."),
+    config: Path = typer.Option(
+        DEFAULT_CONFIG_PATH, "--config", "-c", help="Path to YAML configuration."
+    ),
 ) -> None:
     try:
         from dbrestore.gui import launch_gui
@@ -108,9 +134,15 @@ def gui_command(
 
 @app.command("verify-latest")
 def verify_latest_command(
-    profile: str = typer.Option(..., "--profile", "-p", help="Source backup profile from the YAML config."),
-    target_profile: str = typer.Option(..., "--target-profile", "-t", help="Separate restore target profile used for verification."),
-    config: Path = typer.Option(DEFAULT_CONFIG_PATH, "--config", "-c", help="Path to YAML configuration."),
+    profile: str = typer.Option(
+        ..., "--profile", "-p", help="Source backup profile from the YAML config."
+    ),
+    target_profile: str = typer.Option(
+        ..., "--target-profile", "-t", help="Separate restore target profile used for verification."
+    ),
+    config: Path = typer.Option(
+        DEFAULT_CONFIG_PATH, "--config", "-c", help="Path to YAML configuration."
+    ),
 ) -> None:
     try:
         result = run_verify_latest_backup(
@@ -129,13 +161,25 @@ def verify_latest_command(
 @schedule_app.command("install")
 def schedule_install_command(
     profile: str = typer.Option(..., "--profile", "-p", help="Profile name from the YAML config."),
-    config: Path = typer.Option(DEFAULT_CONFIG_PATH, "--config", "-c", help="Path to YAML configuration."),
-    unit_dir: Path = typer.Option(DEFAULT_SYSTEMD_UNIT_DIR, "--unit-dir", help="Systemd unit directory."),
-    env_dir: Path = typer.Option(DEFAULT_ENV_DIR, "--env-dir", help="Directory for per-profile env files."),
+    config: Path = typer.Option(
+        DEFAULT_CONFIG_PATH, "--config", "-c", help="Path to YAML configuration."
+    ),
+    unit_dir: Path = typer.Option(
+        DEFAULT_SYSTEMD_UNIT_DIR, "--unit-dir", help="Systemd unit directory."
+    ),
+    env_dir: Path = typer.Option(
+        DEFAULT_ENV_DIR, "--env-dir", help="Directory for per-profile env files."
+    ),
     force: bool = typer.Option(False, "--force", help="Overwrite existing unit files."),
-    enable_timer: bool = typer.Option(True, "--enable/--no-enable", help="Enable and start the timer after install."),
-    run_as_user: str | None = typer.Option(None, "--run-as-user", help="Linux user account the backup service should run as."),
-    run_as_group: str | None = typer.Option(None, "--run-as-group", help="Linux group the backup service should run as."),
+    enable_timer: bool = typer.Option(
+        True, "--enable/--no-enable", help="Enable and start the timer after install."
+    ),
+    run_as_user: str | None = typer.Option(
+        None, "--run-as-user", help="Linux user account the backup service should run as."
+    ),
+    run_as_group: str | None = typer.Option(
+        None, "--run-as-group", help="Linux group the backup service should run as."
+    ),
 ) -> None:
     try:
         result = install_schedule(
@@ -154,7 +198,9 @@ def schedule_install_command(
         if result["env_file_path"]:
             typer.echo(f"Env file: {result['env_file_path']}")
             if result["env_template_created"]:
-                typer.echo("Created env template file. Fill in the missing values before relying on the timer.")
+                typer.echo(
+                    "Created env template file. Fill in the missing values before relying on the timer."
+                )
     except DBRestoreError as exc:
         _handle_error(exc)
 
@@ -162,14 +208,24 @@ def schedule_install_command(
 @schedule_app.command("status")
 def schedule_status_command(
     profile: str = typer.Option(..., "--profile", "-p", help="Profile name from the YAML config."),
-    config: Path = typer.Option(DEFAULT_CONFIG_PATH, "--config", "-c", help="Path to YAML configuration."),
-    unit_dir: Path = typer.Option(DEFAULT_SYSTEMD_UNIT_DIR, "--unit-dir", help="Systemd unit directory."),
-    env_dir: Path = typer.Option(DEFAULT_ENV_DIR, "--env-dir", help="Directory for per-profile env files."),
+    config: Path = typer.Option(
+        DEFAULT_CONFIG_PATH, "--config", "-c", help="Path to YAML configuration."
+    ),
+    unit_dir: Path = typer.Option(
+        DEFAULT_SYSTEMD_UNIT_DIR, "--unit-dir", help="Systemd unit directory."
+    ),
+    env_dir: Path = typer.Option(
+        DEFAULT_ENV_DIR, "--env-dir", help="Directory for per-profile env files."
+    ),
 ) -> None:
     try:
-        result = schedule_status(profile_name=profile, config_path=config, unit_dir=unit_dir, env_dir=env_dir)
+        result = schedule_status(
+            profile_name=profile, config_path=config, unit_dir=unit_dir, env_dir=env_dir
+        )
         typer.echo(f"Profile: {result['profile']}")
-        typer.echo(f"Timer: {result['timer_name']} ({result['timer_enabled']}, {result['timer_active']})")
+        typer.echo(
+            f"Timer: {result['timer_name']} ({result['timer_enabled']}, {result['timer_active']})"
+        )
         typer.echo(f"Service: {result['service_name']} ({result['service_active']})")
         typer.echo(f"OnCalendar: {result['on_calendar']}")
         typer.echo(f"Persistent: {result['persistent']}")
@@ -182,12 +238,23 @@ def schedule_status_command(
 @schedule_app.command("remove")
 def schedule_remove_command(
     profile: str = typer.Option(..., "--profile", "-p", help="Profile name from the YAML config."),
-    unit_dir: Path = typer.Option(DEFAULT_SYSTEMD_UNIT_DIR, "--unit-dir", help="Systemd unit directory."),
-    env_dir: Path = typer.Option(DEFAULT_ENV_DIR, "--env-dir", help="Directory for per-profile env files."),
-    delete_env_file: bool = typer.Option(False, "--delete-env-file", help="Delete the per-profile env file as part of removal."),
+    unit_dir: Path = typer.Option(
+        DEFAULT_SYSTEMD_UNIT_DIR, "--unit-dir", help="Systemd unit directory."
+    ),
+    env_dir: Path = typer.Option(
+        DEFAULT_ENV_DIR, "--env-dir", help="Directory for per-profile env files."
+    ),
+    delete_env_file: bool = typer.Option(
+        False, "--delete-env-file", help="Delete the per-profile env file as part of removal."
+    ),
 ) -> None:
     try:
-        result = remove_schedule(profile_name=profile, unit_dir=unit_dir, env_dir=env_dir, delete_env_file=delete_env_file)
+        result = remove_schedule(
+            profile_name=profile,
+            unit_dir=unit_dir,
+            env_dir=env_dir,
+            delete_env_file=delete_env_file,
+        )
         typer.echo(f"Removed schedule for profile '{profile}'")
         if result["removed_files"]:
             typer.echo(f"Removed {len(result['removed_files'])} file(s)")

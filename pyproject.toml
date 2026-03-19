@@ -24,7 +24,9 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+  "basedpyright>=1.29,<2.0",
   "pytest>=8.3,<9.0",
+  "ruff>=0.11,<0.12",
 ]
 
 [project.scripts]
@@ -37,3 +39,41 @@ packages = ["src/dbrestore"]
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = [
+  "__pycache__",
+]
+
+[tool.ruff.lint]
+select = [
+  "E",
+  "F",
+  "I",
+  "UP",
+  "B",
+]
+ignore = [
+  "B008",
+  "E501",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.basedpyright]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+include = [
+  "src",
+  "tests",
+]
+exclude = [
+  ".venv",
+  "build",
+  "dist",
+]
+reportMissingTypeStubs = "warning"

@@ -46,13 +46,18 @@ class SQLiteAdapter(DatabaseAdapter):
                 "ensure the target database file and parent directory are writable."
             ) from exc
 
-    def backup(self, profile: ProfileModel, destination: Path, redactor: Redactor) -> dict[str, str]:
+    def backup(
+        self, profile: ProfileModel, destination: Path, redactor: Redactor
+    ) -> dict[str, str]:
         source_path = profile.resolved_database_path()
         if not source_path.exists():
             raise DatabaseConnectionError(f"SQLite database file not found: {source_path}")
 
         ensure_directory(destination.parent)
-        with sqlite3.connect(source_path) as source_conn, sqlite3.connect(destination) as destination_conn:
+        with (
+            sqlite3.connect(source_path) as source_conn,
+            sqlite3.connect(destination) as destination_conn,
+        ):
             source_conn.backup(destination_conn)
         return {"format": "sqlite_backup"}
 

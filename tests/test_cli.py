@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from dbrestore.cli import app
 from dbrestore import scheduler as scheduler_module
+from dbrestore.cli import app
 
 runner = CliRunner()
 
@@ -16,7 +16,7 @@ runner = CliRunner()
 def test_validate_config_command_succeeds(tmp_path: Path) -> None:
     config_path = tmp_path / "dbrestore.yaml"
     config_path.write_text(
-        f"""
+        """
 version: 1
 defaults:
   output_dir: ./backups
@@ -81,7 +81,9 @@ profiles:
         encoding="utf-8",
     )
 
-    result = runner.invoke(app, ["backup", "--profile", "sqlite_local", "--config", str(config_path)])
+    result = runner.invoke(
+        app, ["backup", "--profile", "sqlite_local", "--config", str(config_path)]
+    )
 
     assert result.exit_code == 0
     assert "Backup completed" in result.stdout
@@ -123,7 +125,9 @@ profiles:
         encoding="utf-8",
     )
 
-    backup_result = runner.invoke(app, ["backup", "--profile", "sqlite_local", "--config", str(config_path)])
+    backup_result = runner.invoke(
+        app, ["backup", "--profile", "sqlite_local", "--config", str(config_path)]
+    )
     assert backup_result.exit_code == 0
 
     run_dir = next((tmp_path / "backups" / "sqlite_local").iterdir())
@@ -173,7 +177,9 @@ profiles:
         encoding="utf-8",
     )
 
-    backup_result = runner.invoke(app, ["backup", "--profile", "sqlite_local", "--config", str(config_path)])
+    backup_result = runner.invoke(
+        app, ["backup", "--profile", "sqlite_local", "--config", str(config_path)]
+    )
     assert backup_result.exit_code == 0
     run_dir = next((tmp_path / "backups" / "sqlite_local").iterdir())
 
@@ -222,7 +228,9 @@ profiles:
     )
 
     for _ in range(3):
-        result = runner.invoke(app, ["backup", "--profile", "sqlite_local", "--config", str(config_path)])
+        result = runner.invoke(
+            app, ["backup", "--profile", "sqlite_local", "--config", str(config_path)]
+        )
         assert result.exit_code == 0
 
     run_dirs = sorted((tmp_path / "backups" / "sqlite_local").iterdir())
@@ -263,7 +271,9 @@ profiles:
         encoding="utf-8",
     )
 
-    backup_result = runner.invoke(app, ["backup", "--profile", "source", "--config", str(config_path)])
+    backup_result = runner.invoke(
+        app, ["backup", "--profile", "source", "--config", str(config_path)]
+    )
     assert backup_result.exit_code == 0
 
     verify_result = runner.invoke(
@@ -356,7 +366,9 @@ profiles:
 
     assert result.exit_code == 0
     assert "Installed dbrestore-backup-postgres_local.timer" in result.stdout
-    service_unit = (unit_dir / "dbrestore-backup-postgres_local.service").read_text(encoding="utf-8")
+    service_unit = (unit_dir / "dbrestore-backup-postgres_local.service").read_text(
+        encoding="utf-8"
+    )
     timer_unit = (unit_dir / "dbrestore-backup-postgres_local.timer").read_text(encoding="utf-8")
     env_template = (env_dir / "postgres_local.env").read_text(encoding="utf-8")
     assert "ExecStart=" in service_unit
@@ -368,7 +380,9 @@ profiles:
     assert systemctl_calls[1] == ["enable", "--now", "dbrestore-backup-postgres_local.timer"]
 
 
-def test_schedule_status_command_reports_states(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_schedule_status_command_reports_states(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     config_path = tmp_path / "dbrestore.yaml"
     config_path.write_text(
         """
@@ -428,7 +442,9 @@ profiles:
     assert "OnCalendar: weekly" in result.stdout
 
 
-def test_schedule_remove_command_deletes_units(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_schedule_remove_command_deletes_units(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     unit_dir = tmp_path / "systemd"
     env_dir = tmp_path / "env"
     unit_dir.mkdir()

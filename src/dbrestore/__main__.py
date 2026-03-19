@@ -5,6 +5,5 @@ That keeps one real command surface instead of splitting behavior across files."
 
 from dbrestore.cli import main
 
-
 if __name__ == "__main__":
     main()

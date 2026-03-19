@@ -9,7 +9,9 @@ from dbrestore.operations import run_backup, run_restore
 from dbrestore.storage import LocalStorageBackend, S3StorageBackend, get_storage_backend
 
 
-def test_get_storage_backend_returns_local_backend_for_explicit_local_storage(tmp_path: Path) -> None:
+def test_get_storage_backend_returns_local_backend_for_explicit_local_storage(
+    tmp_path: Path,
+) -> None:
     config_path = tmp_path / "dbrestore.yaml"
     config_path.write_text(
         """
@@ -185,7 +187,7 @@ class FakeS3Client:
     def delete_object(self, Bucket: str, Key: str) -> None:
         self.objects.pop((Bucket, Key), None)
 
-    def get_paginator(self, name: str) -> "FakePaginator":
+    def get_paginator(self, name: str) -> FakePaginator:
         assert name == "list_objects_v2"
         return FakePaginator(self.objects)
 

@@ -17,4 +17,3 @@ ADAPTERS: dict[str, DatabaseAdapter] = {
 
 def get_adapter(db_type: str) -> DatabaseAdapter:
     return ADAPTERS[db_type]
-

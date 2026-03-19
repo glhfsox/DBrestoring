@@ -9,10 +9,11 @@ import gzip
 import os
 import re
 import shutil
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone, tzinfo
+from datetime import UTC, datetime, tzinfo
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 ENV_VAR_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 URI_PASSWORD_PATTERNS = (
@@ -23,7 +24,7 @@ URI_PASSWORD_PATTERNS = (
 
 
 def local_timezone() -> tzinfo:
-    return datetime.now().astimezone().tzinfo or timezone.utc
+    return datetime.now().astimezone().tzinfo or UTC
 
 
 def current_time() -> datetime:
@@ -112,7 +113,9 @@ def gunzip_decompress(source: Path, destination: Path) -> Path:
     return destination
 
 
-def expand_env_placeholders(value: Any, environ: dict[str, str] | None = None) -> tuple[Any, set[str]]:
+def expand_env_placeholders(
+    value: Any, environ: dict[str, str] | None = None
+) -> tuple[Any, set[str]]:
     env = environ or dict(os.environ)
     missing: set[str] = set()
 
@@ -122,6 +125,7 @@ def expand_env_placeholders(value: Any, environ: dict[str, str] | None = None) -
         if isinstance(item, list):
             return [_expand(inner) for inner in item]
         if isinstance(item, str):
+
             def replace(match: re.Match[str]) -> str:
                 name = match.group(1)
                 replacement = env.get(name)

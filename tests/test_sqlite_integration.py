@@ -38,7 +38,11 @@ profiles:
     )
 
     backup_result = run_backup(profile_name="source", config_path=config_path)
-    run_restore(profile_name="target", config_path=config_path, input_path=Path(backup_result["artifact_path"]))
+    run_restore(
+        profile_name="target",
+        config_path=config_path,
+        input_path=Path(backup_result["artifact_path"]),
+    )
 
     with sqlite3.connect(restored) as connection:
         row = connection.execute("SELECT name FROM items").fetchone()

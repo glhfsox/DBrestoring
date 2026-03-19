@@ -6,8 +6,9 @@ If you want to understand what really happened during a run, this log stream is 
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from dbrestore.utils import current_time, ensure_directory, format_timestamp, json_safe
 

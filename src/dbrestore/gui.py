@@ -10,17 +10,24 @@ import queue
 import shutil
 import subprocess
 import threading
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
-from dbrestore.config import DB_TYPE_ALIASES, DEFAULT_CONFIG_PATH, read_raw_config, validate_raw_config_data, write_raw_config
+from dbrestore.config import (
+    DB_TYPE_ALIASES,
+    DEFAULT_CONFIG_PATH,
+    read_raw_config,
+    validate_raw_config_data,
+    write_raw_config,
+)
 from dbrestore.errors import DBRestoreError
 from dbrestore.operations import (
     list_backup_history,
     list_run_log_events,
-    run_test_connection_with_config,
     run_backup,
     run_restore,
+    run_test_connection_with_config,
     run_verify_latest_backup,
     validate_profile_config,
 )
@@ -30,9 +37,10 @@ from dbrestore.utils import format_display_timestamp, parse_timestamp
 def launch_gui(config_path: Path = DEFAULT_CONFIG_PATH) -> None:
     try:
         import tkinter as tk
-        from tkinter import ttk
     except ImportError as exc:
-        raise DBRestoreError("Tkinter is not available. Install python3-tk to use the GUI.") from exc
+        raise DBRestoreError(
+            "Tkinter is not available. Install python3-tk to use the GUI."
+        ) from exc
 
     root = tk.Tk()
     app = DBRestoreGUI(root=root, config_path=config_path)
@@ -41,7 +49,9 @@ def launch_gui(config_path: Path = DEFAULT_CONFIG_PATH) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Launch the dbrestore desktop GUI.")
-    parser.add_argument("--config", default=str(DEFAULT_CONFIG_PATH), help="Path to YAML configuration.")
+    parser.add_argument(
+        "--config", default=str(DEFAULT_CONFIG_PATH), help="Path to YAML configuration."
+    )
     args = parser.parse_args()
     launch_gui(Path(args.config))
 
@@ -58,7 +68,9 @@ class DBRestoreGUI:
         self.raw_config = _default_raw_config()
         self.selected_profile_name: str | None = None
         self.backup_rows: list[dict[str, Any]] = []
-        self.event_queue: queue.Queue[tuple[str, str, Any, Callable[[Any], None] | None]] = queue.Queue()
+        self.event_queue: queue.Queue[tuple[str, str, Any, Callable[[Any], None] | None]] = (
+            queue.Queue()
+        )
         self.busy = False
 
         self.root.title("dbrestore")
@@ -114,42 +126,140 @@ class DBRestoreGUI:
         except self.tk.TclError:
             pass
 
-        style.configure(".", background=PALETTE["canvas"], foreground=PALETTE["ink"], font=("Cantarell", 10))
+        style.configure(
+            ".", background=PALETTE["canvas"], foreground=PALETTE["ink"], font=("Cantarell", 10)
+        )
         style.configure("App.TFrame", background=PALETTE["canvas"])
         style.configure("Card.TFrame", background=PALETTE["card"], relief="flat")
-        style.configure("Header.TLabel", background=PALETTE["canvas"], foreground=PALETTE["ink"], font=("Cantarell", 23, "bold"))
-        style.configure("Subtle.TLabel", background=PALETTE["canvas"], foreground=PALETTE["muted"], font=("Cantarell", 10))
-        style.configure("CardTitle.TLabel", background=PALETTE["card"], foreground=PALETTE["ink"], font=("Cantarell", 12, "bold"))
-        style.configure("CardText.TLabel", background=PALETTE["card"], foreground=PALETTE["muted"], font=("Cantarell", 10))
+        style.configure(
+            "Header.TLabel",
+            background=PALETTE["canvas"],
+            foreground=PALETTE["ink"],
+            font=("Cantarell", 23, "bold"),
+        )
+        style.configure(
+            "Subtle.TLabel",
+            background=PALETTE["canvas"],
+            foreground=PALETTE["muted"],
+            font=("Cantarell", 10),
+        )
+        style.configure(
+            "CardTitle.TLabel",
+            background=PALETTE["card"],
+            foreground=PALETTE["ink"],
+            font=("Cantarell", 12, "bold"),
+        )
+        style.configure(
+            "CardText.TLabel",
+            background=PALETTE["card"],
+            foreground=PALETTE["muted"],
+            font=("Cantarell", 10),
+        )
         style.configure("TLabel", background=PALETTE["card"], foreground=PALETTE["ink"])
-        style.configure("TEntry", fieldbackground=PALETTE["field"], foreground=PALETTE["ink"], bordercolor=PALETTE["border"], lightcolor=PALETTE["field"], darkcolor=PALETTE["field"], padding=6)
+        style.configure(
+            "TEntry",
+            fieldbackground=PALETTE["field"],
+            foreground=PALETTE["ink"],
+            bordercolor=PALETTE["border"],
+            lightcolor=PALETTE["field"],
+            darkcolor=PALETTE["field"],
+            padding=6,
+        )
         style.map("TEntry", fieldbackground=[("disabled", PALETTE["canvas"])])
-        style.configure("TCombobox", fieldbackground=PALETTE["field"], background=PALETTE["field"], foreground=PALETTE["ink"], bordercolor=PALETTE["border"], arrowsize=14, padding=4)
-        style.configure("Accent.TButton", background=PALETTE["accent"], foreground="white", padding=(10, 7), borderwidth=0)
+        style.configure(
+            "TCombobox",
+            fieldbackground=PALETTE["field"],
+            background=PALETTE["field"],
+            foreground=PALETTE["ink"],
+            bordercolor=PALETTE["border"],
+            arrowsize=14,
+            padding=4,
+        )
+        style.configure(
+            "Accent.TButton",
+            background=PALETTE["accent"],
+            foreground="white",
+            padding=(10, 7),
+            borderwidth=0,
+        )
         style.map("Accent.TButton", background=[("active", PALETTE["accent_dark"])])
-        style.configure("Quiet.TButton", background=PALETTE["field"], foreground=PALETTE["ink"], padding=(10, 7), borderwidth=0)
+        style.configure(
+            "Quiet.TButton",
+            background=PALETTE["field"],
+            foreground=PALETTE["ink"],
+            padding=(10, 7),
+            borderwidth=0,
+        )
         style.map("Quiet.TButton", background=[("active", PALETTE["field_alt"])])
-        style.configure("Danger.TButton", background=PALETTE["danger"], foreground="white", padding=(10, 7), borderwidth=0)
+        style.configure(
+            "Danger.TButton",
+            background=PALETTE["danger"],
+            foreground="white",
+            padding=(10, 7),
+            borderwidth=0,
+        )
         style.map("Danger.TButton", background=[("active", "#9B2C2C")])
         style.configure("TCheckbutton", background=PALETTE["card"], foreground=PALETTE["ink"])
         style.configure("Side.TLabelframe", background=PALETTE["card"], foreground=PALETTE["ink"])
-        style.configure("Side.TLabelframe.Label", background=PALETTE["card"], foreground=PALETTE["muted"], font=("Cantarell", 9, "bold"))
+        style.configure(
+            "Side.TLabelframe.Label",
+            background=PALETTE["card"],
+            foreground=PALETTE["muted"],
+            font=("Cantarell", 9, "bold"),
+        )
         style.configure("Main.TNotebook", background=PALETTE["canvas"], borderwidth=0)
-        style.configure("Main.TNotebook.Tab", padding=(12, 8), background=PALETTE["field"], foreground=PALETTE["muted"])
-        style.map("Main.TNotebook.Tab", background=[("selected", PALETTE["card"])], foreground=[("selected", PALETTE["ink"])])
-        style.configure("History.Treeview", background=PALETTE["card"], fieldbackground=PALETTE["card"], foreground=PALETTE["ink"], rowheight=28, borderwidth=0)
-        style.configure("History.Treeview.Heading", background=PALETTE["field"], foreground=PALETTE["muted"], font=("Cantarell", 10, "bold"), padding=(6, 6))
-        style.map("History.Treeview", background=[("selected", PALETTE["accent_soft"])], foreground=[("selected", PALETTE["ink"])])
+        style.configure(
+            "Main.TNotebook.Tab",
+            padding=(12, 8),
+            background=PALETTE["field"],
+            foreground=PALETTE["muted"],
+        )
+        style.map(
+            "Main.TNotebook.Tab",
+            background=[("selected", PALETTE["card"])],
+            foreground=[("selected", PALETTE["ink"])],
+        )
+        style.configure(
+            "History.Treeview",
+            background=PALETTE["card"],
+            fieldbackground=PALETTE["card"],
+            foreground=PALETTE["ink"],
+            rowheight=28,
+            borderwidth=0,
+        )
+        style.configure(
+            "History.Treeview.Heading",
+            background=PALETTE["field"],
+            foreground=PALETTE["muted"],
+            font=("Cantarell", 10, "bold"),
+            padding=(6, 6),
+        )
+        style.map(
+            "History.Treeview",
+            background=[("selected", PALETTE["accent_soft"])],
+            foreground=[("selected", PALETTE["ink"])],
+        )
 
     def _build_layout(self) -> None:
         header = self.ttk.Frame(self.root, style="App.TFrame", padding=(22, 18, 22, 12))
         header.pack(fill="x")
-        self.ttk.Label(header, text="dbrestore", style="Header.TLabel").grid(row=0, column=0, sticky="w")
-        self.ttk.Label(header, text=f"Config: {self.config_path}", style="Subtle.TLabel").grid(row=1, column=0, sticky="w", pady=(4, 0))
+        self.ttk.Label(header, text="dbrestore", style="Header.TLabel").grid(
+            row=0, column=0, sticky="w"
+        )
+        self.ttk.Label(header, text=f"Config: {self.config_path}", style="Subtle.TLabel").grid(
+            row=1, column=0, sticky="w", pady=(4, 0)
+        )
         button_bar = self.ttk.Frame(header, style="App.TFrame")
         button_bar.grid(row=0, column=1, rowspan=2, sticky="e")
-        self.ttk.Button(button_bar, text="Reload", style="Quiet.TButton", command=lambda: self.reload_config(select_first=False)).pack(side="left", padx=(0, 8))
-        self.ttk.Button(button_bar, text="Open Config", style="Quiet.TButton", command=self.open_config_file).pack(side="left")
+        self.ttk.Button(
+            button_bar,
+            text="Reload",
+            style="Quiet.TButton",
+            command=lambda: self.reload_config(select_first=False),
+        ).pack(side="left", padx=(0, 8))
+        self.ttk.Button(
+            button_bar, text="Open Config", style="Quiet.TButton", command=self.open_config_file
+        ).pack(side="left")
         header.columnconfigure(0, weight=1)
 
         content = self.ttk.Frame(self.root, style="App.TFrame", padding=(22, 0, 22, 22))
@@ -158,7 +268,9 @@ class DBRestoreGUI:
         sidebar = self.ttk.Frame(content, style="Card.TFrame", padding=16)
         sidebar.pack(side="left", fill="y", padx=(0, 16))
         self.ttk.Label(sidebar, text="Profiles", style="CardTitle.TLabel").pack(anchor="w")
-        self.ttk.Label(sidebar, text="Select one profile to edit or run.", style="CardText.TLabel").pack(anchor="w", pady=(4, 12))
+        self.ttk.Label(
+            sidebar, text="Select one profile to edit or run.", style="CardText.TLabel"
+        ).pack(anchor="w", pady=(4, 12))
 
         list_frame = self.ttk.Frame(sidebar, style="Card.TFrame")
         list_frame.pack(fill="both", expand=True)
@@ -174,7 +286,9 @@ class DBRestoreGUI:
             font=("Cantarell", 11),
             activestyle="none",
         )
-        profile_scroll = self.ttk.Scrollbar(list_frame, orient="vertical", command=self.profile_listbox.yview)
+        profile_scroll = self.ttk.Scrollbar(
+            list_frame, orient="vertical", command=self.profile_listbox.yview
+        )
         self.profile_listbox.configure(yscrollcommand=profile_scroll.set)
         self.profile_listbox.pack(side="left", fill="both", expand=True)
         profile_scroll.pack(side="right", fill="y")
@@ -182,8 +296,18 @@ class DBRestoreGUI:
 
         sidebar_actions = self.ttk.Frame(sidebar, style="Card.TFrame")
         sidebar_actions.pack(fill="x", pady=(12, 0))
-        self.ttk.Button(sidebar_actions, text="New Profile", style="Quiet.TButton", command=self.prepare_new_profile).pack(fill="x")
-        self.ttk.Button(sidebar_actions, text="Delete Profile", style="Danger.TButton", command=self.delete_profile).pack(fill="x", pady=(8, 0))
+        self.ttk.Button(
+            sidebar_actions,
+            text="New Profile",
+            style="Quiet.TButton",
+            command=self.prepare_new_profile,
+        ).pack(fill="x")
+        self.ttk.Button(
+            sidebar_actions,
+            text="Delete Profile",
+            style="Danger.TButton",
+            command=self.delete_profile,
+        ).pack(fill="x", pady=(8, 0))
 
         notes = self.ttk.LabelFrame(sidebar, text="Notes", style="Side.TLabelframe", padding=12)
         notes.pack(fill="x", pady=(16, 0))
@@ -192,7 +316,9 @@ class DBRestoreGUI:
             "Validate/Test use the current form values. Export env refs before launching the GUI.\n"
             "Schedule installation still uses the CLI because system-wide units need elevated privileges."
         )
-        self.ttk.Label(notes, text=note_text, style="CardText.TLabel", wraplength=240, justify="left").pack(anchor="w")
+        self.ttk.Label(
+            notes, text=note_text, style="CardText.TLabel", wraplength=240, justify="left"
+        ).pack(anchor="w")
 
         main = self.ttk.Frame(content, style="App.TFrame")
         main.pack(side="left", fill="both", expand=True)
@@ -216,7 +342,9 @@ class DBRestoreGUI:
 
         status_frame = self.ttk.Frame(self.root, style="Card.TFrame", padding=(22, 12, 22, 18))
         status_frame.pack(fill="x")
-        self.ttk.Label(status_frame, textvariable=self.status_var, style="CardTitle.TLabel").pack(anchor="w")
+        self.ttk.Label(status_frame, textvariable=self.status_var, style="CardTitle.TLabel").pack(
+            anchor="w"
+        )
         self.status_text = self.tk.Text(
             status_frame,
             height=8,
@@ -228,7 +356,9 @@ class DBRestoreGUI:
             wrap="word",
             font=("Cantarell", 10),
         )
-        status_scroll = self.ttk.Scrollbar(status_frame, orient="vertical", command=self.status_text.yview)
+        status_scroll = self.ttk.Scrollbar(
+            status_frame, orient="vertical", command=self.status_text.yview
+        )
         self.status_text.configure(yscrollcommand=status_scroll.set)
         self.status_text.pack(side="left", fill="both", expand=True, pady=(8, 0))
         status_scroll.pack(side="right", fill="y", pady=(8, 0))
@@ -270,45 +400,103 @@ class DBRestoreGUI:
         right = self.ttk.Frame(parent, style="Card.TFrame", padding=18)
         right.pack(side="left", fill="both", expand=True)
 
-        self.ttk.Label(left, text="Workspace Defaults", style="CardTitle.TLabel").grid(row=0, column=0, columnspan=2, sticky="w")
-        self.ttk.Label(left, text="These settings apply unless a profile overrides them.", style="CardText.TLabel").grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 14))
+        self.ttk.Label(left, text="Workspace Defaults", style="CardTitle.TLabel").grid(
+            row=0, column=0, columnspan=2, sticky="w"
+        )
+        self.ttk.Label(
+            left,
+            text="These settings apply unless a profile overrides them.",
+            style="CardText.TLabel",
+        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 14))
 
         self._add_labeled_entry(left, 2, "Output Directory", self.defaults_output_dir_var)
         self._add_labeled_entry(left, 3, "Log Directory", self.defaults_log_dir_var)
-        self._add_labeled_combo(left, 4, "Compression", self.defaults_compression_var, ["gzip", "none"])
-        self._add_labeled_entry(left, 5, "Retention Keep Last", self.defaults_retention_keep_last_var)
-        self._add_labeled_entry(left, 6, "Retention Max Age Days", self.defaults_retention_max_age_var)
+        self._add_labeled_combo(
+            left, 4, "Compression", self.defaults_compression_var, ["gzip", "none"]
+        )
+        self._add_labeled_entry(
+            left, 5, "Retention Keep Last", self.defaults_retention_keep_last_var
+        )
+        self._add_labeled_entry(
+            left, 6, "Retention Max Age Days", self.defaults_retention_max_age_var
+        )
 
-        self.ttk.Label(right, text="Profile", style="CardTitle.TLabel").grid(row=0, column=0, columnspan=2, sticky="w")
-        self.ttk.Label(right, text="Edit one database profile and run actions against it.", style="CardText.TLabel").grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 14))
+        self.ttk.Label(right, text="Profile", style="CardTitle.TLabel").grid(
+            row=0, column=0, columnspan=2, sticky="w"
+        )
+        self.ttk.Label(
+            right,
+            text="Edit one database profile and run actions against it.",
+            style="CardText.TLabel",
+        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 14))
 
         self._add_labeled_entry(right, 2, "Profile Name", self.profile_name_var)
-        self._add_labeled_combo(right, 3, "DB Type", self.db_type_var, ["postgres", "mysql", "mariadb", "mongo", "sqlite"], callback=self._sync_db_type_state)
+        self._add_labeled_combo(
+            right,
+            3,
+            "DB Type",
+            self.db_type_var,
+            ["postgres", "mysql", "mariadb", "mongo", "sqlite"],
+            callback=self._sync_db_type_state,
+        )
         self.host_entry = self._add_labeled_entry(right, 4, "Host", self.host_var)
         self.port_entry = self._add_labeled_entry(right, 5, "Port", self.port_var)
         self.username_entry = self._add_labeled_entry(right, 6, "Username", self.username_var)
-        self.password_entry = self._add_labeled_entry(right, 7, "Password / Env Ref", self.password_var, show="*")
+        self.password_entry = self._add_labeled_entry(
+            right, 7, "Password / Env Ref", self.password_var, show="*"
+        )
         self._add_labeled_entry(right, 8, "Database", self.database_var)
-        self.auth_database_entry = self._add_labeled_entry(right, 9, "Auth Database", self.auth_database_var)
+        self.auth_database_entry = self._add_labeled_entry(
+            right, 9, "Auth Database", self.auth_database_var
+        )
         self._add_labeled_entry(right, 10, "Output Directory Override", self.profile_output_dir_var)
-        self._add_labeled_combo(right, 11, "Compression Override", self.profile_compression_var, ["inherit", "gzip", "none"])
-        self._add_labeled_combo(right, 12, "Schedule Preset", self.schedule_preset_var, ["", "hourly", "daily", "weekly"])
-        schedule_label = self.ttk.Label(right, text="Persistent catch-up is enabled when schedule is set.", style="CardText.TLabel")
+        self._add_labeled_combo(
+            right,
+            11,
+            "Compression Override",
+            self.profile_compression_var,
+            ["inherit", "gzip", "none"],
+        )
+        self._add_labeled_combo(
+            right,
+            12,
+            "Schedule Preset",
+            self.schedule_preset_var,
+            ["", "hourly", "daily", "weekly"],
+        )
+        schedule_label = self.ttk.Label(
+            right,
+            text="Persistent catch-up is enabled when schedule is set.",
+            style="CardText.TLabel",
+        )
         schedule_label.grid(row=13, column=0, sticky="w", pady=(4, 0))
-        self.ttk.Checkbutton(right, text="Persistent Catch-Up", variable=self.schedule_persistent_var).grid(row=13, column=1, sticky="w", pady=(4, 0))
+        self.ttk.Checkbutton(
+            right, text="Persistent Catch-Up", variable=self.schedule_persistent_var
+        ).grid(row=13, column=1, sticky="w", pady=(4, 0))
         self._add_labeled_entry(right, 14, "Retention Keep Last", self.retention_keep_last_var)
         self._add_labeled_entry(right, 15, "Retention Max Age Days", self.retention_max_age_var)
 
         action_bar = self.ttk.Frame(right, style="Card.TFrame")
         action_bar.grid(row=16, column=0, columnspan=2, sticky="ew", pady=(18, 0))
         action_bar.columnconfigure((0, 1, 2), weight=1)
-        self.ttk.Button(action_bar, text="Save Profile", style="Accent.TButton", command=self.save_profile).grid(row=0, column=0, sticky="ew", padx=(0, 8))
-        self.ttk.Button(action_bar, text="Validate Profile", style="Quiet.TButton", command=self.validate_profile).grid(row=0, column=1, sticky="ew", padx=(0, 8))
-        self.ttk.Button(action_bar, text="Test Connection", style="Quiet.TButton", command=self.test_connection).grid(row=0, column=2, sticky="ew")
+        self.ttk.Button(
+            action_bar, text="Save Profile", style="Accent.TButton", command=self.save_profile
+        ).grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        self.ttk.Button(
+            action_bar,
+            text="Validate Profile",
+            style="Quiet.TButton",
+            command=self.validate_profile,
+        ).grid(row=0, column=1, sticky="ew", padx=(0, 8))
+        self.ttk.Button(
+            action_bar, text="Test Connection", style="Quiet.TButton", command=self.test_connection
+        ).grid(row=0, column=2, sticky="ew")
 
         actions_card = self.ttk.Frame(right, style="Card.TFrame")
         actions_card.grid(row=17, column=0, columnspan=2, sticky="ew", pady=(14, 0))
-        self.ttk.Label(actions_card, text="Backup And Restore", style="CardTitle.TLabel").grid(row=0, column=0, columnspan=2, sticky="w")
+        self.ttk.Label(actions_card, text="Backup And Restore", style="CardTitle.TLabel").grid(
+            row=0, column=0, columnspan=2, sticky="w"
+        )
         self.ttk.Label(
             actions_card,
             text="Run a backup now or restore one of this profile's recent backups.",
@@ -328,7 +516,9 @@ class DBRestoreGUI:
             pady=(0, 10),
             padx=(0, 12),
         )
-        self.restore_filter_entry = self.ttk.Entry(actions_card, textvariable=self.restore_filter_var)
+        self.restore_filter_entry = self.ttk.Entry(
+            actions_card, textvariable=self.restore_filter_var
+        )
         self.restore_filter_entry.grid(row=3, column=1, sticky="ew", pady=(0, 10))
         self.ttk.Label(
             actions_card,
@@ -351,7 +541,9 @@ class DBRestoreGUI:
         action_bar_2 = self.ttk.Frame(actions_card, style="Card.TFrame")
         action_bar_2.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(10, 0))
         action_bar_2.columnconfigure((0, 1), weight=1)
-        self.ttk.Button(action_bar_2, text="Run Backup", style="Accent.TButton", command=self.run_backup_action).grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        self.ttk.Button(
+            action_bar_2, text="Run Backup", style="Accent.TButton", command=self.run_backup_action
+        ).grid(row=0, column=0, sticky="ew", padx=(0, 8))
         self.restore_button = self.ttk.Button(
             action_bar_2,
             text="Restore Selected Backup",
@@ -369,7 +561,9 @@ class DBRestoreGUI:
             command=self.verify_latest_backup_action,
         )
         self.verify_button.grid(row=0, column=0, sticky="ew", padx=(0, 8))
-        self.ttk.Button(action_bar_3, text="Refresh Lists", style="Quiet.TButton", command=self.refresh_views).grid(row=0, column=1, sticky="ew")
+        self.ttk.Button(
+            action_bar_3, text="Refresh Lists", style="Quiet.TButton", command=self.refresh_views
+        ).grid(row=0, column=1, sticky="ew")
 
         for frame in (left, right):
             frame.columnconfigure(1, weight=1)
@@ -381,10 +575,14 @@ class DBRestoreGUI:
         header = self.ttk.Frame(card, style="Card.TFrame")
         header.pack(fill="x")
         self.ttk.Label(header, text="Backup History", style="CardTitle.TLabel").pack(side="left")
-        self.ttk.Button(header, text="Refresh", style="Quiet.TButton", command=self.refresh_backups).pack(side="right")
+        self.ttk.Button(
+            header, text="Refresh", style="Quiet.TButton", command=self.refresh_backups
+        ).pack(side="right")
 
         columns = ("finished_at", "run_id", "compression", "artifact_path")
-        self.backup_tree = self.ttk.Treeview(card, columns=columns, show="headings", style="History.Treeview", selectmode="browse")
+        self.backup_tree = self.ttk.Treeview(
+            card, columns=columns, show="headings", style="History.Treeview", selectmode="browse"
+        )
         self.backup_tree.heading("finished_at", text="Finished")
         self.backup_tree.heading("run_id", text="Run ID")
         self.backup_tree.heading("compression", text="Compression")
@@ -397,8 +595,18 @@ class DBRestoreGUI:
 
         actions = self.ttk.Frame(card, style="Card.TFrame")
         actions.pack(fill="x", pady=(12, 0))
-        self.ttk.Button(actions, text="Open Folder", style="Quiet.TButton", command=self.open_selected_backup_folder).pack(side="left")
-        self.ttk.Button(actions, text="Restore Selected Into Current Profile", style="Danger.TButton", command=self.restore_selected_backup).pack(side="left", padx=(8, 0))
+        self.ttk.Button(
+            actions,
+            text="Open Folder",
+            style="Quiet.TButton",
+            command=self.open_selected_backup_folder,
+        ).pack(side="left")
+        self.ttk.Button(
+            actions,
+            text="Restore Selected Into Current Profile",
+            style="Danger.TButton",
+            command=self.restore_selected_backup,
+        ).pack(side="left", padx=(8, 0))
 
     def _build_activity_tab(self, parent: Any) -> None:
         card = self.ttk.Frame(parent, style="Card.TFrame", padding=18)
@@ -406,7 +614,9 @@ class DBRestoreGUI:
         header = self.ttk.Frame(card, style="Card.TFrame")
         header.pack(fill="x")
         self.ttk.Label(header, text="Recent Activity", style="CardTitle.TLabel").pack(side="left")
-        self.ttk.Button(header, text="Refresh", style="Quiet.TButton", command=self.refresh_logs).pack(side="right")
+        self.ttk.Button(
+            header, text="Refresh", style="Quiet.TButton", command=self.refresh_logs
+        ).pack(side="right")
         self.activity_text = self.tk.Text(
             card,
             bg=PALETTE["card"],
@@ -417,19 +627,35 @@ class DBRestoreGUI:
             wrap="word",
             font=("Cantarell", 10),
         )
-        activity_scroll = self.ttk.Scrollbar(card, orient="vertical", command=self.activity_text.yview)
+        activity_scroll = self.ttk.Scrollbar(
+            card, orient="vertical", command=self.activity_text.yview
+        )
         self.activity_text.configure(yscrollcommand=activity_scroll.set)
         self.activity_text.pack(side="left", fill="both", expand=True, pady=(14, 0))
         activity_scroll.pack(side="right", fill="y", pady=(14, 0))
 
-    def _add_labeled_entry(self, parent: Any, row: int, label: str, variable: Any, show: str | None = None) -> Any:
-        self.ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", pady=(0, 10), padx=(0, 12))
+    def _add_labeled_entry(
+        self, parent: Any, row: int, label: str, variable: Any, show: str | None = None
+    ) -> Any:
+        self.ttk.Label(parent, text=label).grid(
+            row=row, column=0, sticky="w", pady=(0, 10), padx=(0, 12)
+        )
         entry = self.ttk.Entry(parent, textvariable=variable, show=show or "")
         entry.grid(row=row, column=1, sticky="ew", pady=(0, 10))
         return entry
 
-    def _add_labeled_combo(self, parent: Any, row: int, label: str, variable: Any, values: list[str], callback: Callable[[Any], None] | None = None) -> Any:
-        self.ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", pady=(0, 10), padx=(0, 12))
+    def _add_labeled_combo(
+        self,
+        parent: Any,
+        row: int,
+        label: str,
+        variable: Any,
+        values: list[str],
+        callback: Callable[[Any], None] | None = None,
+    ) -> Any:
+        self.ttk.Label(parent, text=label).grid(
+            row=row, column=0, sticky="w", pady=(0, 10), padx=(0, 12)
+        )
         combo = self.ttk.Combobox(parent, textvariable=variable, values=values, state="readonly")
         combo.grid(row=row, column=1, sticky="ew", pady=(0, 10))
         if callback is not None:
@@ -512,7 +738,9 @@ class DBRestoreGUI:
         if profile_name not in self.raw_config.get("profiles", {}):
             self.prepare_new_profile()
             return
-        if not messagebox.askyesno("Delete Profile", f"Delete profile '{profile_name}' from the config?"):
+        if not messagebox.askyesno(
+            "Delete Profile", f"Delete profile '{profile_name}' from the config?"
+        ):
             return
 
         candidate = dict(self.raw_config)
@@ -628,8 +856,12 @@ class DBRestoreGUI:
                 profile_name=profile_name,
                 input_path=Path(record["run_dir"]),
                 config_path=self.config_path,
-                tables=self._restore_filter_values() if _normalize_db_type_label(self.db_type_var.get().strip()) == "postgres" else None,
-                collections=self._restore_filter_values() if _normalize_db_type_label(self.db_type_var.get().strip()) == "mongo" else None,
+                tables=self._restore_filter_values()
+                if _normalize_db_type_label(self.db_type_var.get().strip()) == "postgres"
+                else None,
+                collections=self._restore_filter_values()
+                if _normalize_db_type_label(self.db_type_var.get().strip()) == "mongo"
+                else None,
             ),
             callback=self._handle_restore_completed,
         )
@@ -640,7 +872,9 @@ class DBRestoreGUI:
 
     def refresh_backups(self) -> None:
         profile_name = self.profile_name_var.get().strip() or None
-        self.backup_rows = list_backup_history(config_path=self.config_path, profile_name=profile_name, limit=200)
+        self.backup_rows = list_backup_history(
+            config_path=self.config_path, profile_name=profile_name, limit=200
+        )
         for item in self.backup_tree.get_children():
             self.backup_tree.delete(item)
         for index, row in enumerate(self.backup_rows):
@@ -659,7 +893,9 @@ class DBRestoreGUI:
 
     def refresh_logs(self) -> None:
         profile_name = self.profile_name_var.get().strip() or None
-        events = list_run_log_events(config_path=self.config_path, profile_name=profile_name, limit=150)
+        events = list_run_log_events(
+            config_path=self.config_path, profile_name=profile_name, limit=150
+        )
         self.activity_text.delete("1.0", "end")
         for event in events:
             payload = event.get("payload", {})
@@ -674,7 +910,9 @@ class DBRestoreGUI:
             return
         record = self.backup_rows[int(selection[0])]
         if str(record["run_dir"]).startswith("s3://"):
-            self._show_error("This backup is stored remotely in S3 and does not have a local folder to open.")
+            self._show_error(
+                "This backup is stored remotely in S3 and does not have a local folder to open."
+            )
             return
         target = Path(record["run_dir"])
         opener = shutil.which("xdg-open")
@@ -967,7 +1205,9 @@ class DBRestoreGUI:
 
         actions = self.ttk.Frame(shell, style="Card.TFrame")
         actions.pack(fill="x", pady=(14, 0))
-        self.ttk.Button(actions, text="Close", style="Accent.TButton", command=dialog.destroy).pack(side="right")
+        self.ttk.Button(actions, text="Close", style="Accent.TButton", command=dialog.destroy).pack(
+            side="right"
+        )
 
         dialog.bind("<Escape>", lambda _event: dialog.destroy())
         dialog.protocol("WM_DELETE_WINDOW", dialog.destroy)
@@ -1019,10 +1259,7 @@ class DBRestoreGUI:
         _set_widget_state(self.restore_button, False)
 
     def _restore_choice_map(self) -> dict[str, dict[str, Any]]:
-        return {
-            _restore_option_label(row): row
-            for row in self.backup_rows
-        }
+        return {_restore_option_label(row): row for row in self.backup_rows}
 
     def _handle_backup_completed(self, result: dict[str, Any]) -> None:
         self.refresh_views()
@@ -1049,11 +1286,13 @@ class DBRestoreGUI:
         current_profile = self.profile_name_var.get().strip()
         current_db_type = _normalize_db_type_label(self.db_type_var.get().strip())
         options = [
-            name for name in self._profile_names()
+            name
+            for name in self._profile_names()
             if name != current_profile
             and _normalize_db_type_label(
                 self.raw_config.get("profiles", {}).get(name, {}).get("db_type", "")
-            ) == current_db_type
+            )
+            == current_db_type
         ]
         if not hasattr(self, "verify_target_combo"):
             return
@@ -1062,7 +1301,9 @@ class DBRestoreGUI:
         if options:
             if current_target not in options:
                 self.verify_target_profile_var.set(options[0])
-            self.verify_hint_var.set("Use a separate disposable profile as the verification target.")
+            self.verify_hint_var.set(
+                "Use a separate disposable profile as the verification target."
+            )
             _set_widget_state(self.verify_target_combo, True)
             _set_widget_state(self.verify_button, True)
             return
@@ -1071,9 +1312,7 @@ class DBRestoreGUI:
             self.verify_target_profile_var.set("Create another matching profile first")
         else:
             self.verify_target_profile_var.set("")
-        self.verify_hint_var.set(
-            "Verification requires a different profile with the same DB type."
-        )
+        self.verify_hint_var.set("Verification requires a different profile with the same DB type.")
         _set_widget_state(self.verify_target_combo, False)
         _set_widget_state(self.verify_button, False)
 
