@@ -1,6 +1,6 @@
 .PHONY: check format test lint typecheck
 
-PYTHON ?= .venv/bin/python
+PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python)
 
 check:
 	$(PYTHON) -m ruff check .
