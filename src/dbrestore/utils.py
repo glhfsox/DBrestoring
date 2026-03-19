@@ -31,14 +31,20 @@ def current_time() -> datetime:
     return datetime.now().astimezone().replace(microsecond=0)
 
 
+def _normalize_timestamp(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=local_timezone(), microsecond=0)
+    return value.replace(microsecond=0)
+
+
 def format_timestamp(value: datetime) -> str:
-    localized = value.astimezone(local_timezone()).replace(microsecond=0)
-    return localized.strftime("%H:%M:%S %Y-%m-%d")
+    normalized = _normalize_timestamp(value)
+    return normalized.strftime("%H:%M:%S %Y-%m-%d")
 
 
 def format_storage_timestamp(value: datetime) -> str:
-    localized = value.astimezone(local_timezone()).replace(microsecond=0)
-    return localized.strftime("%Y%m%dT%H%M%S")
+    normalized = _normalize_timestamp(value)
+    return normalized.strftime("%Y%m%dT%H%M%S")
 
 
 def format_display_timestamp(value: datetime) -> str:
