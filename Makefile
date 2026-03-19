@@ -1,23 +1,39 @@
-.PHONY: check format test lint typecheck
+.PHONY: bootstrap check format test lint typecheck
 
-PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python)
+BOOTSTRAP_PYTHON ?= $(shell command -v python3 || command -v python)
+VENV_PYTHON := .venv/bin/python
+DEV_STAMP := .venv/.dev-installed
 
-check:
-	$(PYTHON) -m ruff check .
-	$(PYTHON) -m ruff format --check .
-	$(PYTHON) -m basedpyright
-	$(PYTHON) -m pytest
+ifeq ($(strip $(BOOTSTRAP_PYTHON)),)
+$(error Could not find python3 or python in PATH)
+endif
 
-format:
-	$(PYTHON) -m ruff check . --fix
-	$(PYTHON) -m ruff format .
+$(VENV_PYTHON):
+	$(BOOTSTRAP_PYTHON) -m venv .venv
 
-test:
-	$(PYTHON) -m pytest
+$(DEV_STAMP): pyproject.toml | $(VENV_PYTHON)
+	$(VENV_PYTHON) -m pip install --upgrade pip
+	$(VENV_PYTHON) -m pip install -e ".[dev]"
+	@touch $(DEV_STAMP)
 
-lint:
-	$(PYTHON) -m ruff check .
-	$(PYTHON) -m ruff format --check .
+bootstrap: $(DEV_STAMP)
 
-typecheck:
-	$(PYTHON) -m basedpyright
+check: $(DEV_STAMP)
+	$(VENV_PYTHON) -m ruff check .
+	$(VENV_PYTHON) -m ruff format --check .
+	$(VENV_PYTHON) -m basedpyright
+	$(VENV_PYTHON) -m pytest
+
+format: $(DEV_STAMP)
+	$(VENV_PYTHON) -m ruff check . --fix
+	$(VENV_PYTHON) -m ruff format .
+
+test: $(DEV_STAMP)
+	$(VENV_PYTHON) -m pytest
+
+lint: $(DEV_STAMP)
+	$(VENV_PYTHON) -m ruff check .
+	$(VENV_PYTHON) -m ruff format --check .
+
+typecheck: $(DEV_STAMP)
+	$(VENV_PYTHON) -m basedpyright
