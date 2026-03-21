@@ -14,6 +14,7 @@ from dbrestore.operations import (
     list_backup_history,
     list_run_log_events,
     run_backup,
+    run_scheduled_cycle,
     run_test_connection_with_config,
     validate_profile_config,
 )
@@ -196,3 +197,87 @@ def test_dialog_geometry_clamps_to_screen() -> None:
     assert height == 520
     assert x_pos >= 20
     assert y_pos >= 20
+
+
+def test_run_backup_emits_progress_updates(tmp_path: Path) -> None:
+    source = tmp_path / "source.sqlite3"
+    config_path = tmp_path / "dbrestore.yaml"
+
+    with sqlite3.connect(source) as connection:
+        connection.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT)")
+        connection.execute("INSERT INTO items (name) VALUES ('widget')")
+        connection.commit()
+
+    config_path.write_text(
+        f"""
+version: 1
+defaults:
+  output_dir: ./backups
+  log_dir: ./logs
+profiles:
+  sqlite_local:
+    db_type: sqlite
+    database: {source}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    progress_events: list[dict[str, Any]] = []
+    run_backup(
+        profile_name="sqlite_local",
+        config_path=config_path,
+        progress=progress_events.append,
+    )
+
+    assert progress_events
+    assert progress_events[0]["message"] == "Loading profile 'sqlite_local'"
+    assert any(event["mode"] == "auto" for event in progress_events)
+    assert any("target_percent" in event for event in progress_events if event["mode"] == "auto")
+    assert progress_events[-1]["percent"] == 100.0
+
+
+def test_run_scheduled_cycle_emits_progress_updates(tmp_path: Path) -> None:
+    source = tmp_path / "source.sqlite3"
+    verification_target = tmp_path / "verification.sqlite3"
+    config_path = tmp_path / "dbrestore.yaml"
+
+    with sqlite3.connect(source) as connection:
+        connection.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT)")
+        connection.execute("INSERT INTO items (name) VALUES ('widget')")
+        connection.commit()
+
+    with sqlite3.connect(verification_target) as connection:
+        connection.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT)")
+        connection.commit()
+
+    config_path.write_text(
+        f"""
+version: 1
+defaults:
+  output_dir: ./backups
+  log_dir: ./logs
+profiles:
+  source:
+    db_type: sqlite
+    database: {source}
+    verification:
+      target_profile: verification_target
+  verification_target:
+    db_type: sqlite
+    database: {verification_target}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    progress_events: list[dict[str, Any]] = []
+    run_scheduled_cycle(
+        profile_name="source",
+        config_path=config_path,
+        progress=progress_events.append,
+    )
+
+    assert progress_events
+    assert any("Backup:" in event["message"] for event in progress_events)
+    assert any("Verify:" in event["message"] for event in progress_events)
+    assert progress_events[-1]["message"] == "Scheduled cycle completed"
+    assert progress_events[-1]["percent"] == 100.0

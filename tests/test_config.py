@@ -255,6 +255,34 @@ profiles:
     assert env_vars == ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"]
 
 
+def test_load_config_parses_verification_block(tmp_path: Path) -> None:
+    config_path = tmp_path / "dbrestore.yaml"
+    config_path.write_text(
+        """
+version: 1
+profiles:
+  source:
+    db_type: sqlite
+    database: ./data/source.sqlite3
+    verification:
+      target_profile: source_verify
+      schedule_after_backup: false
+
+  source_verify:
+    db_type: sqlite
+    database: ./data/verify.sqlite3
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path, require_env=False)
+    verification = config.get_profile("source").verification
+
+    assert verification is not None
+    assert verification.target_profile == "source_verify"
+    assert verification.schedule_after_backup is False
+
+
 def test_validate_config_reports_invalid_output_dir(tmp_path: Path) -> None:
     config_path = tmp_path / "dbrestore.yaml"
     config_path.write_text(
