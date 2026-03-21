@@ -301,6 +301,59 @@ profiles:
     assert any(event["event"] == "verification.completed" for event in events)
 
 
+def test_run_scheduled_command_runs_backup_and_verification_from_profile_config(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.sqlite3"
+    verification_target = tmp_path / "verification.sqlite3"
+
+    with sqlite3.connect(source) as connection:
+        connection.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT)")
+        connection.execute("INSERT INTO items (name) VALUES ('widget')")
+        connection.commit()
+
+    with sqlite3.connect(verification_target) as connection:
+        connection.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT)")
+        connection.execute("INSERT INTO items (name) VALUES ('stale')")
+        connection.commit()
+
+    config_path = tmp_path / "dbrestore.yaml"
+    config_path.write_text(
+        f"""
+version: 1
+defaults:
+  output_dir: ./backups
+  log_dir: ./logs
+profiles:
+  source:
+    db_type: sqlite
+    database: {source}
+    verification:
+      target_profile: verification_target
+  verification_target:
+    db_type: sqlite
+    database: {verification_target}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app, ["run-scheduled", "--profile", "source", "--config", str(config_path)]
+    )
+
+    assert result.exit_code == 0
+    assert "verification=verified" in result.stdout
+
+    with sqlite3.connect(verification_target) as connection:
+        row = connection.execute("SELECT name FROM items").fetchone()
+    assert row == ("widget",)
+
+    log_file = tmp_path / "logs" / "runs.jsonl"
+    events = [json.loads(line) for line in log_file.read_text(encoding="utf-8").splitlines()]
+    assert any(event["event"] == "scheduled_cycle.completed" for event in events)
+    assert any(event["event"] == "verification.completed" for event in events)
+
+
 def test_schedule_install_command_writes_units_and_env_template(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -409,6 +462,18 @@ profiles:
             ("is-enabled", "dbrestore-backup-sqlite_local.timer"): "enabled\n",
             ("is-active", "dbrestore-backup-sqlite_local.timer"): "active\n",
             ("is-active", "dbrestore-backup-sqlite_local.service"): "inactive\n",
+            (
+                "show",
+                "dbrestore-backup-sqlite_local.timer",
+                "--property=NextElapseUSecRealtime",
+                "--value",
+            ): "Sat 2026-03-21 12:00:00 CET\n",
+            (
+                "show",
+                "dbrestore-backup-sqlite_local.timer",
+                "--property=LastTriggerUSec",
+                "--value",
+            ): "Sat 2026-03-21 11:00:00 CET\n",
         }
 
         class Result:
@@ -440,6 +505,264 @@ profiles:
     assert result.exit_code == 0
     assert "Timer: dbrestore-backup-sqlite_local.timer (enabled, active)" in result.stdout
     assert "OnCalendar: weekly" in result.stdout
+    assert "Next run: Sat 2026-03-21 12:00:00 CET" in result.stdout
+    assert "Last trigger: Sat 2026-03-21 11:00:00 CET" in result.stdout
+
+
+def test_status_command_reports_readiness_dashboard_data(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "source.sqlite3"
+    verification_target = tmp_path / "verification.sqlite3"
+
+    with sqlite3.connect(source) as connection:
+        connection.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT)")
+        connection.execute("INSERT INTO items (name) VALUES ('widget')")
+        connection.commit()
+
+    with sqlite3.connect(verification_target) as connection:
+        connection.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT)")
+        connection.execute("CREATE TABLE IF NOT EXISTS items_shadow (id INTEGER PRIMARY KEY)")
+        connection.commit()
+
+    config_path = tmp_path / "dbrestore.yaml"
+    config_path.write_text(
+        f"""
+version: 1
+defaults:
+  output_dir: ./backups
+  log_dir: ./logs
+profiles:
+  source:
+    db_type: sqlite
+    database: {source}
+    schedule:
+      preset: daily
+    verification:
+      target_profile: verification_target
+  verification_target:
+    db_type: sqlite
+    database: {verification_target}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    runner.invoke(app, ["backup", "--profile", "source", "--config", str(config_path)])
+    runner.invoke(
+        app,
+        [
+            "verify-latest",
+            "--profile",
+            "source",
+            "--target-profile",
+            "verification_target",
+            "--config",
+            str(config_path),
+        ],
+    )
+
+    unit_dir = tmp_path / "systemd"
+    env_dir = tmp_path / "env"
+    unit_dir.mkdir()
+    (unit_dir / "dbrestore-backup-source.service").write_text("service", encoding="utf-8")
+    (unit_dir / "dbrestore-backup-source.timer").write_text("timer", encoding="utf-8")
+
+    def fake_state(args: list[str], check: bool = True) -> object:
+        state_map: dict[tuple[str, ...], str] = {
+            ("is-enabled", "dbrestore-backup-source.timer"): "enabled\n",
+            ("is-active", "dbrestore-backup-source.timer"): "active\n",
+            ("is-active", "dbrestore-backup-source.service"): "inactive\n",
+            (
+                "show",
+                "dbrestore-backup-source.timer",
+                "--property=NextElapseUSecRealtime",
+                "--value",
+            ): "Sun 2026-03-22 12:00:00 CET\n",
+        }
+
+        class Result:
+            def __init__(self, stdout: str) -> None:
+                self.returncode = 0
+                self.stdout = stdout
+                self.stderr = ""
+
+        return Result(state_map.get(tuple(args), "unknown\n"))
+
+    monkeypatch.setattr(scheduler_module, "_run_systemctl", fake_state)
+
+    result = runner.invoke(
+        app,
+        [
+            "status",
+            "--profile",
+            "source",
+            "--config",
+            str(config_path),
+            "--unit-dir",
+            str(unit_dir),
+            "--env-dir",
+            str(env_dir),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Last Backup:" in result.stdout
+    assert "Last Verification: ok" in result.stdout
+    assert "Next Run: Sun 2026-03-22 12:00:00 CET" in result.stdout
+    assert "Verification Target: verification_target (scheduled=True)" in result.stdout
+
+
+def test_preflight_command_reports_checks(tmp_path: Path) -> None:
+    database_path = tmp_path / "data.sqlite3"
+    with sqlite3.connect(database_path) as connection:
+        connection.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT)")
+        connection.commit()
+
+    config_path = tmp_path / "dbrestore.yaml"
+    config_path.write_text(
+        f"""
+version: 1
+defaults:
+  output_dir: ./backups
+profiles:
+  sqlite_local:
+    db_type: sqlite
+    database: {database_path}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "preflight",
+            "--profile",
+            "sqlite_local",
+            "--config",
+            str(config_path),
+            "--no-connection",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Preflight: warning" in result.stdout
+    assert "- environment: ok -" in result.stdout
+    assert "- verification: warning -" in result.stdout
+
+
+def test_schedule_show_and_save_env_commands(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "dbrestore.yaml"
+    config_path.write_text(
+        """
+version: 1
+profiles:
+  postgres_local:
+    db_type: postgres
+    host: localhost
+    username: postgres
+    password: ${PGPASSWORD}
+    database: app_db
+    schedule:
+      preset: hourly
+""".strip(),
+        encoding="utf-8",
+    )
+
+    env_dir = tmp_path / "env"
+    show_result = runner.invoke(
+        app,
+        [
+            "schedule",
+            "show-env",
+            "--profile",
+            "postgres_local",
+            "--config",
+            str(config_path),
+            "--env-dir",
+            str(env_dir),
+        ],
+    )
+
+    assert show_result.exit_code == 0
+    assert "PGPASSWORD=" in show_result.stdout
+
+    payload_path = tmp_path / "schedule.env"
+    payload_path.write_text("PGPASSWORD=secret\n", encoding="utf-8")
+    save_result = runner.invoke(
+        app,
+        [
+            "schedule",
+            "save-env",
+            "--profile",
+            "postgres_local",
+            "--config",
+            str(config_path),
+            "--env-dir",
+            str(env_dir),
+            "--env-file",
+            str(payload_path),
+        ],
+    )
+
+    assert save_result.exit_code == 0
+    assert "Saved env file:" in save_result.stdout
+    assert (env_dir / "postgres_local.env").read_text(encoding="utf-8") == "PGPASSWORD=secret\n"
+
+
+def test_schedule_show_env_reports_permission_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "dbrestore.yaml"
+    config_path.write_text(
+        """
+version: 1
+profiles:
+  postgres_local:
+    db_type: postgres
+    host: localhost
+    username: postgres
+    password: ${PGPASSWORD}
+    database: app_db
+    schedule:
+      preset: hourly
+""".strip(),
+        encoding="utf-8",
+    )
+
+    env_dir = tmp_path / "env"
+    env_dir.mkdir()
+    env_path = env_dir / "postgres_local.env"
+    env_path.write_text("PGPASSWORD=secret\n", encoding="utf-8")
+    original_read_text = Path.read_text
+
+    def fake_read_text(self: Path, encoding: str | None = None, errors: str | None = None) -> str:
+        if self == env_path:
+            raise PermissionError("permission denied")
+        return original_read_text(self, encoding=encoding, errors=errors)
+
+    monkeypatch.setattr(Path, "read_text", fake_read_text)
+
+    result = runner.invoke(
+        app,
+        [
+            "schedule",
+            "show-env",
+            "--profile",
+            "postgres_local",
+            "--config",
+            str(config_path),
+            "--env-dir",
+            str(env_dir),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "Unable to read env file" in result.stderr
 
 
 def test_schedule_remove_command_deletes_units(
