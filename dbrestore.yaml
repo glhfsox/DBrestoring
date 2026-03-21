@@ -16,8 +16,11 @@ profiles:
     password: '123'
     compression: false
     schedule:
-      preset: daily
+      preset: hourly
       persistent: true
+    verification:
+      target_profile: postgres_verify
+      schedule_after_backup: true
   postgres_verify:
     db_type: postgres
     database: test
@@ -29,3 +32,6 @@ profiles:
     schedule:
       preset: hourly
       persistent: true
+    verification:
+      target_profile: postgres_local
+      schedule_after_backup: true
