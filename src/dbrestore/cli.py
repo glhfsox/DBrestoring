@@ -12,8 +12,11 @@ import typer
 from dbrestore.config import DEFAULT_CONFIG_PATH
 from dbrestore.errors import DBRestoreError
 from dbrestore.operations import (
+    collect_profile_status,
     run_backup,
+    run_profile_preflight,
     run_restore,
+    run_scheduled_cycle,
     run_test_connection,
     run_validate_config,
     run_verify_latest_backup,
@@ -22,7 +25,9 @@ from dbrestore.scheduler import (
     DEFAULT_ENV_DIR,
     DEFAULT_SYSTEMD_UNIT_DIR,
     install_schedule,
+    load_schedule_env_file,
     remove_schedule,
+    save_schedule_env_file,
     schedule_status,
 )
 
@@ -55,6 +60,22 @@ def backup_command(
             output_dir_override=output_dir,
             no_compress=no_compress,
             console=typer.echo,
+        )
+    except DBRestoreError as exc:
+        _handle_error(exc)
+
+
+@app.command("run-scheduled")
+def run_scheduled_command(
+    profile: str = typer.Option(..., "--profile", "-p", help="Profile name from the YAML config."),
+    config: Path = typer.Option(
+        DEFAULT_CONFIG_PATH, "--config", "-c", help="Path to YAML configuration."
+    ),
+) -> None:
+    try:
+        result = run_scheduled_cycle(profile_name=profile, config_path=config, console=typer.echo)
+        typer.echo(
+            f"Scheduled cycle completed for profile '{profile}' (verification={result['verification_status']})"
         )
     except DBRestoreError as exc:
         _handle_error(exc)
@@ -118,6 +139,95 @@ def validate_config_command(
         _handle_error(exc)
 
 
+@app.command("preflight")
+def preflight_command(
+    profile: str = typer.Option(..., "--profile", "-p", help="Profile name from the YAML config."),
+    config: Path = typer.Option(
+        DEFAULT_CONFIG_PATH, "--config", "-c", help="Path to YAML configuration."
+    ),
+    unit_dir: Path = typer.Option(
+        DEFAULT_SYSTEMD_UNIT_DIR, "--unit-dir", help="Systemd unit directory."
+    ),
+    env_dir: Path = typer.Option(
+        DEFAULT_ENV_DIR, "--env-dir", help="Directory for per-profile env files."
+    ),
+    include_connection: bool = typer.Option(
+        True, "--include-connection/--no-connection", help="Run a live DB connection test."
+    ),
+) -> None:
+    try:
+        result = run_profile_preflight(
+            profile_name=profile,
+            config_path=config,
+            unit_dir=unit_dir,
+            env_dir=env_dir,
+            include_connection=include_connection,
+        )
+        typer.echo(f"Profile: {result['profile']}")
+        typer.echo(f"Preflight: {result['status']}")
+        for check in result["checks"]:
+            typer.echo(f"- {check['name']}: {check['status']} - {check['message']}")
+    except DBRestoreError as exc:
+        _handle_error(exc)
+
+
+@app.command("status")
+def status_command(
+    profile: str = typer.Option(..., "--profile", "-p", help="Profile name from the YAML config."),
+    config: Path = typer.Option(
+        DEFAULT_CONFIG_PATH, "--config", "-c", help="Path to YAML configuration."
+    ),
+    unit_dir: Path = typer.Option(
+        DEFAULT_SYSTEMD_UNIT_DIR, "--unit-dir", help="Systemd unit directory."
+    ),
+    env_dir: Path = typer.Option(
+        DEFAULT_ENV_DIR, "--env-dir", help="Directory for per-profile env files."
+    ),
+) -> None:
+    try:
+        result = collect_profile_status(
+            profile_name=profile,
+            config_path=config,
+            unit_dir=unit_dir,
+            env_dir=env_dir,
+        )
+        typer.echo(f"Profile: {result['profile']}")
+        typer.echo(f"DB Type: {result['db_type']}")
+        typer.echo(f"Storage: {result['storage']['target']}")
+        typer.echo(f"Storage Health: {result['storage']['health'].get('status', 'unknown')}")
+        if result["last_backup"] is not None:
+            typer.echo(
+                f"Last Backup: {result['last_backup'].get('finished_at')} ({result['last_backup'].get('run_id')})"
+            )
+        else:
+            typer.echo("Last Backup: none")
+        if result["last_verification"] is not None:
+            payload = result["last_verification"]["payload"]
+            typer.echo(
+                f"Last Verification: {result['last_verification']['status']} at {result['last_verification']['timestamp']} into {payload.get('target_profile')}"
+            )
+        else:
+            typer.echo("Last Verification: none")
+        schedule = result["schedule"]
+        typer.echo(f"Schedule: {schedule.get('message', 'not configured')}")
+        if schedule.get("next_run"):
+            typer.echo(f"Next Run: {schedule['next_run']}")
+        typer.echo(
+            "Retention: "
+            f"configured={result['retention']['configured']}, "
+            f"total_runs={result['retention']['total_runs']}, "
+            f"pending_delete={result['retention']['pending_delete_count']}"
+        )
+        verification = result["verification"]
+        if verification["configured"]:
+            typer.echo(
+                f"Verification Target: {verification['target_profile']} "
+                f"(scheduled={verification['scheduled_after_backup']})"
+            )
+    except DBRestoreError as exc:
+        _handle_error(exc)
+
+
 @app.command("gui")
 def gui_command(
     config: Path = typer.Option(
@@ -137,8 +247,11 @@ def verify_latest_command(
     profile: str = typer.Option(
         ..., "--profile", "-p", help="Source backup profile from the YAML config."
     ),
-    target_profile: str = typer.Option(
-        ..., "--target-profile", "-t", help="Separate restore target profile used for verification."
+    target_profile: str | None = typer.Option(
+        None,
+        "--target-profile",
+        "-t",
+        help="Separate restore target profile used for verification. Defaults to verification.target_profile from config when omitted.",
     ),
     config: Path = typer.Option(
         DEFAULT_CONFIG_PATH, "--config", "-c", help="Path to YAML configuration."
@@ -229,8 +342,66 @@ def schedule_status_command(
         typer.echo(f"Service: {result['service_name']} ({result['service_active']})")
         typer.echo(f"OnCalendar: {result['on_calendar']}")
         typer.echo(f"Persistent: {result['persistent']}")
+        if result["verification_target_profile"]:
+            typer.echo(f"Verification target: {result['verification_target_profile']}")
+        if result["next_run"]:
+            typer.echo(f"Next run: {result['next_run']}")
+        if result["last_trigger"]:
+            typer.echo(f"Last trigger: {result['last_trigger']}")
         if result["env_file_path"]:
             typer.echo(f"Env file: {result['env_file_path']} (exists={result['env_file_exists']})")
+            typer.echo(
+                f"Env values set: {result['env_values_set_count']}/{len(result['env_vars'])}"
+            )
+            if result["env_vars_missing"]:
+                typer.echo(f"Missing env values: {', '.join(result['env_vars_missing'])}")
+    except DBRestoreError as exc:
+        _handle_error(exc)
+
+
+@schedule_app.command("show-env")
+def schedule_show_env_command(
+    profile: str = typer.Option(..., "--profile", "-p", help="Profile name from the YAML config."),
+    config: Path = typer.Option(
+        DEFAULT_CONFIG_PATH, "--config", "-c", help="Path to YAML configuration."
+    ),
+    env_dir: Path = typer.Option(
+        DEFAULT_ENV_DIR, "--env-dir", help="Directory for per-profile env files."
+    ),
+) -> None:
+    try:
+        result = load_schedule_env_file(profile_name=profile, config_path=config, env_dir=env_dir)
+        typer.echo(f"Env file: {result['env_file_path']} (exists={result['exists']})")
+        typer.echo(result["text"])
+    except DBRestoreError as exc:
+        _handle_error(exc)
+
+
+@schedule_app.command("save-env")
+def schedule_save_env_command(
+    profile: str = typer.Option(..., "--profile", "-p", help="Profile name from the YAML config."),
+    config: Path = typer.Option(
+        DEFAULT_CONFIG_PATH, "--config", "-c", help="Path to YAML configuration."
+    ),
+    env_dir: Path = typer.Option(
+        DEFAULT_ENV_DIR, "--env-dir", help="Directory for per-profile env files."
+    ),
+    env_file: Path = typer.Option(
+        ...,
+        "--env-file",
+        help="Path to a text file whose contents should become the schedule env file.",
+    ),
+) -> None:
+    try:
+        result = save_schedule_env_file(
+            profile_name=profile,
+            contents=env_file.read_text(encoding="utf-8"),
+            config_path=config,
+            env_dir=env_dir,
+        )
+        typer.echo(f"Saved env file: {result['env_file_path']}")
+        if result["missing_vars"]:
+            typer.echo(f"Unset values: {', '.join(result['missing_vars'])}")
     except DBRestoreError as exc:
         _handle_error(exc)
 
