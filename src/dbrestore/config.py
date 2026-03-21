@@ -139,6 +139,23 @@ class NotificationsModel(BaseModel):
     slack: SlackNotificationModel | None = None
 
 
+class VerificationModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    target_profile: str
+    schedule_after_backup: bool = True
+
+    @field_validator("target_profile", mode="before")
+    @classmethod
+    def normalize_target_profile(cls, value: Any) -> str:
+        if not isinstance(value, str):
+            raise ValueError("verification target_profile must be a string")
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("verification target_profile cannot be empty")
+        return normalized
+
+
 class ScheduleModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -189,6 +206,7 @@ class ProfileModel(BaseModel):
     auth_database: str | None = None
     retention: RetentionModel | None = None
     schedule: ScheduleModel | None = None
+    verification: VerificationModel | None = None
     notifications: NotificationsModel | None = None
     _base_dir: Path = PrivateAttr(default=Path.cwd())
 
