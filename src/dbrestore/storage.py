@@ -21,8 +21,10 @@ from dbrestore.models import BackupManifest
 from dbrestore.utils import (
     ensure_directory,
     expand_user_path,
+    find_existing_parent,
     format_storage_timestamp,
     parse_timestamp,
+    validate_writable_path,
 )
 
 
@@ -82,6 +84,10 @@ class StorageBackend(ABC):
 
     @abstractmethod
     def delete_backup_runs(self, runs: list[BackupRunRecord]) -> list[str]:
+        raise NotImplementedError
+
+    @abstractmethod
+    def health_check(self, profile_name: str, output_dir: Path) -> dict[str, Any]:
         raise NotImplementedError
 
     def latest_backup_run(self, profile_name: str, output_dir: Path) -> BackupRunRecord:
@@ -192,6 +198,25 @@ class LocalStorageBackend(StorageBackend):
             shutil.rmtree(Path(run.run_dir))
             deleted_runs.append(run.run_dir)
         return deleted_runs
+
+    def health_check(self, profile_name: str, output_dir: Path) -> dict[str, Any]:
+        target_dir = output_dir / profile_name
+        validate_writable_path(output_dir)
+        ensure_directory(target_dir)
+        disk_root = target_dir if target_dir.exists() else find_existing_parent(target_dir)
+        if disk_root is None:
+            raise ArtifactError(f"No existing parent directory found for: {target_dir}")
+        usage = shutil.disk_usage(disk_root)
+        return {
+            "status": "ok",
+            "kind": "local",
+            "output_dir": str(output_dir),
+            "target": str(target_dir),
+            "free_bytes": usage.free,
+            "used_bytes": usage.used,
+            "total_bytes": usage.total,
+            "message": f"Local storage is writable at {target_dir}",
+        }
 
     def _resolve_artifact_path(
         self,
@@ -331,6 +356,26 @@ class S3StorageBackend(StorageBackend):
             self.client.delete_object(Bucket=bucket, Key=key)
             deleted_runs.append(run.run_dir)
         return deleted_runs
+
+    def health_check(self, profile_name: str, output_dir: Path) -> dict[str, Any]:
+        staging = self.local_backend.health_check(profile_name, output_dir)
+        prefix = _join_s3_key(self.prefix, profile_name)
+        try:
+            keys = self._list_keys(prefix)
+        except Exception as exc:
+            raise ArtifactError(
+                f"Unable to reach S3 storage s3://{self.bucket}/{prefix.rstrip('/')}"
+            ) from exc
+        return {
+            "status": "ok",
+            "kind": "s3",
+            "bucket": self.bucket,
+            "prefix": prefix,
+            "target": _build_s3_uri(self.bucket, prefix),
+            "reachable_keys": len(keys),
+            "staging": staging,
+            "message": f"S3 storage is reachable at s3://{self.bucket}/{prefix}",
+        }
 
     def _read_manifest(self, manifest_uri: str) -> dict[str, Any]:
         bucket, key = _parse_s3_uri(manifest_uri)

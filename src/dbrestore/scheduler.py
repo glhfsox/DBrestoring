@@ -5,9 +5,7 @@ So this layer is about automation plumbing, not about backup mechanics themselve
 
 from __future__ import annotations
 
-import grp
 import os
-import pwd
 import re
 import shlex
 import shutil
@@ -16,6 +14,16 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+try:
+    import grp
+except ImportError:  # pragma: no cover - only hit on non-Unix platforms.
+    grp = None
+
+try:
+    import pwd
+except ImportError:  # pragma: no cover - only hit on non-Unix platforms.
+    pwd = None
 
 from dbrestore.config import DEFAULT_CONFIG_PATH, collect_profile_env_vars, load_config
 from dbrestore.errors import ConfigError, SchedulingError
@@ -121,6 +129,9 @@ def install_schedule(
         "run_as_group": group_name,
         "on_calendar": profile.schedule.on_calendar,
         "persistent": profile.schedule.persistent,
+        "verification_target_profile": profile.verification.target_profile
+        if profile.verification and profile.verification.schedule_after_backup
+        else None,
     }
 
 
@@ -187,6 +198,7 @@ def schedule_status(
     timer_exists = schedule_paths.timer_path.exists()
     status = {
         "profile": profile_name,
+        "configured": True,
         "service_name": schedule_paths.service_name,
         "timer_name": schedule_paths.timer_name,
         "service_path": str(schedule_paths.service_path),
@@ -203,14 +215,85 @@ def schedule_status(
         "timer_enabled": "unknown",
         "timer_active": "unknown",
         "service_active": "unknown",
+        "next_run": None,
+        "last_trigger": None,
+        "verification_target_profile": profile.verification.target_profile
+        if profile.verification and profile.verification.schedule_after_backup
+        else None,
     }
+
+    env_file_values = _load_env_values(
+        schedule_paths.env_file_path if schedule_paths.env_vars else None
+    )
+    status["env_vars_missing"] = [
+        name for name in env_vars if not (env_file_values.get(name) or "").strip()
+    ]
+    status["env_values_set_count"] = len(
+        [name for name in env_vars if (env_file_values.get(name) or "").strip()]
+    )
 
     if service_exists or timer_exists:
         status["timer_enabled"] = _systemctl_state(["is-enabled", schedule_paths.timer_name])
         status["timer_active"] = _systemctl_state(["is-active", schedule_paths.timer_name])
         status["service_active"] = _systemctl_state(["is-active", schedule_paths.service_name])
+    if timer_exists:
+        status["next_run"] = _systemctl_show_property(
+            schedule_paths.timer_name,
+            ["NextElapseUSecRealtime", "NextElapseUSec"],
+        )
+        status["last_trigger"] = _systemctl_show_property(
+            schedule_paths.timer_name,
+            ["LastTriggerUSec", "LastTriggerUSecRealtime"],
+        )
 
     return status
+
+
+def load_schedule_env_file(
+    profile_name: str,
+    config_path: Path = DEFAULT_CONFIG_PATH,
+    env_dir: Path = DEFAULT_ENV_DIR,
+) -> dict[str, Any]:
+    config = load_config(config_path, require_env=False)
+    resolved_config_path = config.source_path or config_path.expanduser().resolve()
+    env_vars = collect_profile_env_vars(resolved_config_path, profile_name)
+    resolved_env_dir = _resolve_path(env_dir, field_name="env_dir")
+    env_file_path = _build_env_file_path(profile_name, resolved_env_dir)
+    if env_file_path.exists():
+        text = _read_env_file_text(env_file_path)
+    else:
+        text = render_env_template(profile_name, env_vars)
+    values = _parse_env_file_text(text)
+    missing = [name for name in env_vars if not (values.get(name) or "").strip()]
+    return {
+        "profile": profile_name,
+        "env_file_path": str(env_file_path),
+        "exists": env_file_path.exists(),
+        "env_vars": env_vars,
+        "text": text,
+        "missing_vars": missing,
+    }
+
+
+def save_schedule_env_file(
+    profile_name: str,
+    contents: str,
+    config_path: Path = DEFAULT_CONFIG_PATH,
+    env_dir: Path = DEFAULT_ENV_DIR,
+) -> dict[str, Any]:
+    config = load_config(config_path, require_env=False)
+    resolved_config_path = config.source_path or config_path.expanduser().resolve()
+    collect_profile_env_vars(resolved_config_path, profile_name)
+    resolved_env_dir = _resolve_path(env_dir, field_name="env_dir")
+    env_file_path = _build_env_file_path(profile_name, resolved_env_dir)
+    ensure_directory(env_file_path.parent)
+    normalized = contents if contents.endswith("\n") else f"{contents}\n"
+    try:
+        env_file_path.write_text(normalized, encoding="utf-8")
+        os.chmod(env_file_path, 0o600)
+    except OSError as exc:
+        raise SchedulingError(f"Unable to write env file: {env_file_path}: {exc}") from exc
+    return load_schedule_env_file(profile_name, config_path=config_path, env_dir=env_dir)
 
 
 def render_service_unit(
@@ -225,7 +308,7 @@ def render_service_unit(
         sys.executable,
         "-m",
         "dbrestore",
-        "backup",
+        "run-scheduled",
         "--profile",
         profile_name,
         "--config",
@@ -317,6 +400,8 @@ def _sanitize_unit_name(profile_name: str) -> str:
 
 
 def _resolve_run_identity(run_as_user: str | None, run_as_group: str | None) -> tuple[str, str]:
+    if pwd is None or grp is None:
+        raise SchedulingError("Systemd schedule management is only supported on Unix-like systems")
     user_name = run_as_user or _default_run_user()
     try:
         user_info = pwd.getpwnam(user_name)
@@ -336,6 +421,8 @@ def _resolve_run_identity(run_as_user: str | None, run_as_group: str | None) -> 
 
 
 def _default_run_user() -> str:
+    if pwd is None:
+        raise SchedulingError("Systemd schedule management is only supported on Unix-like systems")
     if os.geteuid() == 0 and os.environ.get("SUDO_USER"):
         return os.environ["SUDO_USER"]
     return pwd.getpwuid(os.getuid()).pw_name
@@ -359,6 +446,46 @@ def _systemctl_state(args: list[str]) -> str:
         return result.stdout.strip() or "active"
     details = result.stdout.strip() or result.stderr.strip()
     return details or "unknown"
+
+
+def _systemctl_show_property(unit_name: str, properties: list[str]) -> str | None:
+    for property_name in properties:
+        result = _run_systemctl(
+            ["show", unit_name, f"--property={property_name}", "--value"],
+            check=False,
+        )
+        value = result.stdout.strip() or result.stderr.strip()
+        if result.returncode == 0 and value and value.lower() not in {"n/a", "[not set]"}:
+            return value
+    return None
+
+
+def _build_env_file_path(profile_name: str, env_dir: Path) -> Path:
+    return env_dir / f"{_sanitize_unit_name(profile_name)}.env"
+
+
+def _load_env_values(env_file_path: Path | None) -> dict[str, str]:
+    if env_file_path is None or not env_file_path.exists():
+        return {}
+    return _parse_env_file_text(_read_env_file_text(env_file_path))
+
+
+def _read_env_file_text(env_file_path: Path) -> str:
+    try:
+        return env_file_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise SchedulingError(f"Unable to read env file: {env_file_path}: {exc}") from exc
+
+
+def _parse_env_file_text(text: str) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, value = line.split("=", 1)
+        values[name.strip()] = value.strip()
+    return values
 
 
 def _resolve_path(path: Path, *, field_name: str) -> Path:
