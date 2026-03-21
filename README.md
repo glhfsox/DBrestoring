@@ -6,17 +6,17 @@ IDEA : https://roadmap.sh/projects/database-backup-utility
 
 ## Features
 
-- YAML-based profile configuration
-- Environment-variable-backed secrets
+
 - Full backup and restore commands
-- Minimal desktop GUI for profile editing, backup/restore actions, and history browsing
+- Desktop GUI for profile editing, backup/restore actions, readiness dashboards, schedule management, env-file editing, and history browsing
 - Linux systemd schedule installation for unattended backups
 - Local artifact storage with optional gzip compression
 - Optional S3-compatible artifact storage
 - Automatic retention cleanup for old backup runs
 - Optional Slack webhook notifications for backup and verification outcomes
-- JSONL run logging
 - Preflight validation for config, output paths, and required native tools
+- Configurable verification targets plus scheduled backup+verification cycles
+- Status/readiness and preflight commands for operational checks
 
 ## Under construction
 
@@ -82,6 +82,17 @@ profiles:
     schedule:
       preset: hourly
       persistent: true
+    verification:
+      target_profile: local_pg_verify
+      schedule_after_backup: true
+
+  local_pg_verify:
+    db_type: postgres
+    host: localhost
+    port: 5432
+    username: app
+    password: ${PGPASSWORD}
+    database: app_db_verify
 
   local_sqlite:
     db_type: sqlite
@@ -121,8 +132,11 @@ profiles:
 
 ```bash
 dbrestore validate-config
+dbrestore preflight --profile local_pg
+dbrestore status --profile local_pg
 dbrestore test-connection --profile local_pg
 dbrestore backup --profile local_pg
+dbrestore run-scheduled --profile local_pg
 dbrestore verify-latest --profile local_pg --target-profile local_pg_verify
 dbrestore restore --profile local_pg --input ./backups/local_pg/20260315T120000_abcd1234
 dbrestore restore --profile local_pg --input ./backups/local_pg/20260315T120000_abcd1234 --table public.items --table public.orders
@@ -130,5 +144,6 @@ dbrestore restore --profile local_mongo --input ./backups/local_mongo/20260315T1
 dbrestore gui
 sudo dbrestore schedule install --profile local_pg
 dbrestore schedule status --profile local_pg
+dbrestore schedule show-env --profile local_pg
 sudo dbrestore schedule remove --profile local_pg
 ```
