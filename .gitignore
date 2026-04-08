@@ -10,4 +10,5 @@ backups/
 logs/
 backups/
 *.txt
-.yaml
+*.yaml
+*venv/
