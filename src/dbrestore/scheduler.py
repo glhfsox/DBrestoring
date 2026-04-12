@@ -1,11 +1,13 @@
-"""This module bridges the app with Linux systemd scheduling.
-It turns profile schedule settings into installed service and timer units, plus env files for unattended runs.
+"""This module bridges the app with OS-native schedulers.
+On Linux it installs systemd service and timer units.
+On macOS it installs launchd property lists.
 The actual backup work still happens through the normal CLI and operations flow.
 So this layer is about automation plumbing, not about backup mechanics themselves."""
 
 from __future__ import annotations
 
 import os
+import plistlib
 import re
 import shlex
 import shutil
@@ -30,31 +32,79 @@ from dbrestore.errors import ConfigError, SchedulingError
 from dbrestore.utils import ensure_directory, expand_user_path
 
 DEFAULT_SYSTEMD_UNIT_DIR = Path("/etc/systemd/system")
-DEFAULT_ENV_DIR = Path("/etc/dbrestore/env")
+DEFAULT_LAUNCHD_AGENT_DIR = Path.home() / "Library" / "LaunchAgents"
+DEFAULT_LAUNCHD_DAEMON_DIR = Path("/Library/LaunchDaemons")
+DEFAULT_LINUX_ENV_DIR = Path("/etc/dbrestore/env")
+DEFAULT_MACOS_ENV_DIR = Path.home() / "Library" / "Application Support" / "dbrestore" / "env"
 
 
 @dataclass(frozen=True)
 class SchedulePaths:
     profile_name: str
     unit_basename: str
-    service_name: str
-    timer_name: str
-    service_path: Path
-    timer_path: Path
+    backend: str
+    job_label: str
+    definition_name: str
+    definition_path: Path
     env_file_path: Path | None
     env_vars: list[str]
+    service_name: str | None = None
+    timer_name: str | None = None
+    service_path: Path | None = None
+    timer_path: Path | None = None
+
+
+def schedule_backend() -> str:
+    if sys.platform == "darwin":
+        return "launchd"
+    if sys.platform.startswith("linux"):
+        return "systemd"
+    return "unsupported"
+
+
+def schedule_backend_display_name(backend: str | None = None) -> str:
+    resolved = backend or schedule_backend()
+    return {
+        "launchd": "Launchd",
+        "systemd": "Systemd",
+    }.get(resolved, "Scheduler")
+
+
+def default_schedule_unit_dir() -> Path:
+    backend = schedule_backend()
+    if backend == "launchd":
+        return DEFAULT_LAUNCHD_AGENT_DIR
+    if backend == "systemd":
+        return DEFAULT_SYSTEMD_UNIT_DIR
+    return Path("./.dbrestore/schedule")
+
+
+def default_env_dir() -> Path:
+    backend = schedule_backend()
+    if backend == "launchd":
+        return DEFAULT_MACOS_ENV_DIR
+    if backend == "systemd":
+        return DEFAULT_LINUX_ENV_DIR
+    return Path("./.dbrestore/env")
+
+
+DEFAULT_SCHEDULE_UNIT_DIR = default_schedule_unit_dir()
+DEFAULT_ENV_DIR = default_env_dir()
+SCHEDULE_BACKEND = schedule_backend()
+SCHEDULE_BACKEND_DISPLAY_NAME = schedule_backend_display_name(SCHEDULE_BACKEND)
 
 
 def install_schedule(
     profile_name: str,
     config_path: Path = DEFAULT_CONFIG_PATH,
-    unit_dir: Path = DEFAULT_SYSTEMD_UNIT_DIR,
+    unit_dir: Path = DEFAULT_SCHEDULE_UNIT_DIR,
     env_dir: Path = DEFAULT_ENV_DIR,
     enable_timer: bool = True,
     force: bool = False,
     run_as_user: str | None = None,
     run_as_group: str | None = None,
 ) -> dict[str, Any]:
+    backend = _require_supported_schedule_backend()
     config = load_config(config_path, require_env=False)
     profile = config.get_profile(profile_name)
     if profile.schedule is None:
@@ -65,40 +115,63 @@ def install_schedule(
     resolved_env_dir = _resolve_path(env_dir, field_name="env_dir")
     env_vars = collect_profile_env_vars(resolved_config_path, profile_name)
     schedule_paths = _build_schedule_paths(
-        profile_name, resolved_unit_dir, resolved_env_dir, env_vars
+        profile_name,
+        backend,
+        resolved_unit_dir,
+        resolved_env_dir,
+        env_vars,
     )
-    user_name, group_name = _resolve_run_identity(run_as_user, run_as_group)
+    user_name, group_name = _resolve_install_identity(
+        backend,
+        resolved_unit_dir,
+        run_as_user,
+        run_as_group,
+    )
 
-    if not force:
-        existing = [
-            path
-            for path in (schedule_paths.service_path, schedule_paths.timer_path)
-            if path.exists()
-        ]
-        if existing:
-            joined = ", ".join(str(path) for path in existing)
-            raise SchedulingError(
-                f"Schedule unit file(s) already exist for profile '{profile_name}': {joined}. Use --force to overwrite."
-            )
+    existing = _existing_schedule_definition_paths(schedule_paths)
+    if existing and not force:
+        joined = ", ".join(str(path) for path in existing)
+        raise SchedulingError(
+            f"Schedule definition file(s) already exist for profile '{profile_name}': {joined}. Use --force to overwrite."
+        )
 
-    ensure_directory(schedule_paths.service_path.parent)
-    service_contents = render_service_unit(
-        profile_name=profile_name,
-        service_name=schedule_paths.service_name,
-        config_path=resolved_config_path,
-        run_as_user=user_name,
-        run_as_group=group_name,
-        env_file_path=schedule_paths.env_file_path if schedule_paths.env_vars else None,
-    )
-    timer_contents = render_timer_unit(
-        profile_name=profile_name,
-        timer_name=schedule_paths.timer_name,
-        service_name=schedule_paths.service_name,
-        on_calendar=profile.schedule.on_calendar,
-        persistent=profile.schedule.persistent,
-    )
-    schedule_paths.service_path.write_text(service_contents, encoding="utf-8")
-    schedule_paths.timer_path.write_text(timer_contents, encoding="utf-8")
+    if backend == "systemd":
+        assert schedule_paths.service_path is not None
+        assert schedule_paths.timer_path is not None
+        assert schedule_paths.service_name is not None
+        assert schedule_paths.timer_name is not None
+
+        ensure_directory(schedule_paths.service_path.parent)
+        service_contents = render_service_unit(
+            profile_name=profile_name,
+            service_name=schedule_paths.service_name,
+            config_path=resolved_config_path,
+            run_as_user=user_name,
+            run_as_group=group_name,
+            env_file_path=schedule_paths.env_file_path if schedule_paths.env_vars else None,
+        )
+        timer_contents = render_timer_unit(
+            profile_name=profile_name,
+            timer_name=schedule_paths.timer_name,
+            service_name=schedule_paths.service_name,
+            on_calendar=profile.schedule.on_calendar,
+            persistent=profile.schedule.persistent,
+        )
+        schedule_paths.service_path.write_text(service_contents, encoding="utf-8")
+        schedule_paths.timer_path.write_text(timer_contents, encoding="utf-8")
+    else:
+        ensure_directory(schedule_paths.definition_path.parent)
+        definition_contents = render_launchd_plist(
+            profile_name=profile_name,
+            job_label=schedule_paths.job_label,
+            config_path=resolved_config_path,
+            env_file_path=schedule_paths.env_file_path if schedule_paths.env_vars else None,
+            on_calendar=profile.schedule.on_calendar,
+            run_as_user=user_name,
+            run_as_group=group_name,
+            unit_dir=resolved_unit_dir,
+        )
+        schedule_paths.definition_path.write_text(definition_contents, encoding="utf-8")
 
     env_template_created = False
     if schedule_paths.env_vars and schedule_paths.env_file_path is not None:
@@ -111,18 +184,21 @@ def install_schedule(
             os.chmod(schedule_paths.env_file_path, 0o600)
             env_template_created = True
 
-    _run_systemctl(["daemon-reload"])
-    if enable_timer:
-        _run_systemctl(["enable", "--now", schedule_paths.timer_name])
+    if backend == "systemd":
+        assert schedule_paths.timer_name is not None
+        _run_systemctl(["daemon-reload"])
+        if enable_timer:
+            _run_systemctl(["enable", "--now", schedule_paths.timer_name])
+    else:
+        domain_target = _launchd_domain_target(resolved_unit_dir)
+        if enable_timer:
+            _run_launchctl(
+                ["bootout", domain_target, str(schedule_paths.definition_path)], check=False
+            )
+            _run_launchctl(["bootstrap", domain_target, str(schedule_paths.definition_path)])
 
     return {
-        "profile": profile_name,
-        "service_name": schedule_paths.service_name,
-        "timer_name": schedule_paths.timer_name,
-        "service_path": str(schedule_paths.service_path),
-        "timer_path": str(schedule_paths.timer_path),
-        "env_file_path": str(schedule_paths.env_file_path) if schedule_paths.env_vars else None,
-        "env_vars": schedule_paths.env_vars,
+        **_base_schedule_metadata(schedule_paths, resolved_unit_dir),
         "env_template_created": env_template_created,
         "enabled": enable_timer,
         "run_as_user": user_name,
@@ -137,24 +213,46 @@ def install_schedule(
 
 def remove_schedule(
     profile_name: str,
-    unit_dir: Path = DEFAULT_SYSTEMD_UNIT_DIR,
+    unit_dir: Path = DEFAULT_SCHEDULE_UNIT_DIR,
     env_dir: Path = DEFAULT_ENV_DIR,
     delete_env_file: bool = False,
 ) -> dict[str, Any]:
+    backend = _require_supported_schedule_backend()
     resolved_unit_dir = _resolve_path(unit_dir, field_name="unit_dir")
     resolved_env_dir = _resolve_path(env_dir, field_name="env_dir")
-    schedule_paths = _build_schedule_paths(profile_name, resolved_unit_dir, resolved_env_dir, [])
-
-    _run_systemctl(["disable", "--now", schedule_paths.timer_name], check=False)
-    _run_systemctl(
-        ["reset-failed", schedule_paths.timer_name, schedule_paths.service_name], check=False
+    schedule_paths = _build_schedule_paths(
+        profile_name,
+        backend,
+        resolved_unit_dir,
+        resolved_env_dir,
+        [],
     )
 
     removed_files: list[str] = []
-    for path in (schedule_paths.timer_path, schedule_paths.service_path):
-        if path.exists():
-            path.unlink()
-            removed_files.append(str(path))
+    if backend == "systemd":
+        assert schedule_paths.timer_name is not None
+        assert schedule_paths.service_name is not None
+        assert schedule_paths.timer_path is not None
+        assert schedule_paths.service_path is not None
+
+        _run_systemctl(["disable", "--now", schedule_paths.timer_name], check=False)
+        _run_systemctl(
+            ["reset-failed", schedule_paths.timer_name, schedule_paths.service_name],
+            check=False,
+        )
+
+        for path in (schedule_paths.timer_path, schedule_paths.service_path):
+            if path.exists():
+                path.unlink()
+                removed_files.append(str(path))
+
+        _run_systemctl(["daemon-reload"], check=False)
+    else:
+        domain_target = _launchd_domain_target(resolved_unit_dir)
+        _run_launchctl(["bootout", domain_target, str(schedule_paths.definition_path)], check=False)
+        if schedule_paths.definition_path.exists():
+            schedule_paths.definition_path.unlink()
+            removed_files.append(str(schedule_paths.definition_path))
 
     if (
         delete_env_file
@@ -164,12 +262,8 @@ def remove_schedule(
         schedule_paths.env_file_path.unlink()
         removed_files.append(str(schedule_paths.env_file_path))
 
-    _run_systemctl(["daemon-reload"], check=False)
-
     return {
-        "profile": profile_name,
-        "service_name": schedule_paths.service_name,
-        "timer_name": schedule_paths.timer_name,
+        **_base_schedule_metadata(schedule_paths, resolved_unit_dir),
         "removed_files": removed_files,
         "deleted_env_file": delete_env_file,
     }
@@ -178,9 +272,10 @@ def remove_schedule(
 def schedule_status(
     profile_name: str,
     config_path: Path = DEFAULT_CONFIG_PATH,
-    unit_dir: Path = DEFAULT_SYSTEMD_UNIT_DIR,
+    unit_dir: Path = DEFAULT_SCHEDULE_UNIT_DIR,
     env_dir: Path = DEFAULT_ENV_DIR,
 ) -> dict[str, Any]:
+    backend = _require_supported_schedule_backend()
     config = load_config(config_path, require_env=False)
     profile = config.get_profile(profile_name)
     if profile.schedule is None:
@@ -191,30 +286,22 @@ def schedule_status(
     resolved_env_dir = _resolve_path(env_dir, field_name="env_dir")
     env_vars = collect_profile_env_vars(resolved_config_path, profile_name)
     schedule_paths = _build_schedule_paths(
-        profile_name, resolved_unit_dir, resolved_env_dir, env_vars
+        profile_name,
+        backend,
+        resolved_unit_dir,
+        resolved_env_dir,
+        env_vars,
     )
 
-    service_exists = schedule_paths.service_path.exists()
-    timer_exists = schedule_paths.timer_path.exists()
     status = {
-        "profile": profile_name,
+        **_base_schedule_metadata(schedule_paths, resolved_unit_dir),
         "configured": True,
-        "service_name": schedule_paths.service_name,
-        "timer_name": schedule_paths.timer_name,
-        "service_path": str(schedule_paths.service_path),
-        "timer_path": str(schedule_paths.timer_path),
-        "service_exists": service_exists,
-        "timer_exists": timer_exists,
-        "env_file_path": str(schedule_paths.env_file_path) if schedule_paths.env_vars else None,
+        "installed": False,
         "env_file_exists": bool(
             schedule_paths.env_file_path and schedule_paths.env_file_path.exists()
         ),
-        "env_vars": env_vars,
         "on_calendar": profile.schedule.on_calendar,
         "persistent": profile.schedule.persistent,
-        "timer_enabled": "unknown",
-        "timer_active": "unknown",
-        "service_active": "unknown",
         "next_run": None,
         "last_trigger": None,
         "verification_target_profile": profile.verification.target_profile
@@ -232,19 +319,65 @@ def schedule_status(
         [name for name in env_vars if (env_file_values.get(name) or "").strip()]
     )
 
-    if service_exists or timer_exists:
-        status["timer_enabled"] = _systemctl_state(["is-enabled", schedule_paths.timer_name])
-        status["timer_active"] = _systemctl_state(["is-active", schedule_paths.timer_name])
-        status["service_active"] = _systemctl_state(["is-active", schedule_paths.service_name])
-    if timer_exists:
-        status["next_run"] = _systemctl_show_property(
-            schedule_paths.timer_name,
-            ["NextElapseUSecRealtime", "NextElapseUSec"],
+    if backend == "systemd":
+        assert schedule_paths.service_path is not None
+        assert schedule_paths.timer_path is not None
+        assert schedule_paths.service_name is not None
+        assert schedule_paths.timer_name is not None
+
+        service_exists = schedule_paths.service_path.exists()
+        timer_exists = schedule_paths.timer_path.exists()
+        status.update(
+            {
+                "installed": service_exists and timer_exists,
+                "service_exists": service_exists,
+                "timer_exists": timer_exists,
+                "timer_enabled": "unknown",
+                "timer_active": "unknown",
+                "service_active": "unknown",
+            }
         )
-        status["last_trigger"] = _systemctl_show_property(
-            schedule_paths.timer_name,
-            ["LastTriggerUSec", "LastTriggerUSecRealtime"],
-        )
+        if service_exists or timer_exists:
+            status["timer_enabled"] = _systemctl_state(["is-enabled", schedule_paths.timer_name])
+            status["timer_active"] = _systemctl_state(["is-active", schedule_paths.timer_name])
+            status["service_active"] = _systemctl_state(["is-active", schedule_paths.service_name])
+        if timer_exists:
+            status["next_run"] = _systemctl_show_property(
+                schedule_paths.timer_name,
+                ["NextElapseUSecRealtime", "NextElapseUSec"],
+            )
+            status["last_trigger"] = _systemctl_show_property(
+                schedule_paths.timer_name,
+                ["LastTriggerUSec", "LastTriggerUSecRealtime"],
+            )
+        return status
+
+    domain_target = _launchd_domain_target(resolved_unit_dir)
+    service_target = _launchd_service_target(domain_target, schedule_paths.job_label)
+    definition_exists = schedule_paths.definition_path.exists()
+    launchctl_result = _run_launchctl(["print", service_target], check=False)
+    launchctl_output = launchctl_result.stdout or launchctl_result.stderr
+    disabled = _launchd_disabled_state(domain_target, schedule_paths.job_label)
+
+    status.update(
+        {
+            "installed": definition_exists,
+            "definition_exists": definition_exists,
+            "job_domain": domain_target,
+            "job_loaded": launchctl_result.returncode == 0,
+            "job_enabled": None if disabled is None else not disabled,
+            "job_state": "unloaded",
+            "job_pid": None,
+            "job_runs": None,
+            "last_exit_code": None,
+        }
+    )
+    if launchctl_result.returncode == 0:
+        pid_value = _launchctl_print_value(launchctl_output, "pid")
+        status["job_state"] = _launchctl_print_value(launchctl_output, "state") or "loaded"
+        status["job_pid"] = int(pid_value) if pid_value and pid_value.isdigit() else None
+        status["job_runs"] = _launchctl_print_value(launchctl_output, "runs")
+        status["last_exit_code"] = _launchctl_print_value(launchctl_output, "last exit code")
 
     return status
 
@@ -296,6 +429,14 @@ def save_schedule_env_file(
     return load_schedule_env_file(profile_name, config_path=config_path, env_dir=env_dir)
 
 
+def load_schedule_env_vars_into_environment(env_file_path: Path) -> dict[str, str]:
+    resolved_env_file = _resolve_path(env_file_path, field_name="env_file")
+    values = _parse_env_file_text(_read_env_file_text(resolved_env_file))
+    for name, value in values.items():
+        os.environ[name] = value
+    return values
+
+
 def render_service_unit(
     profile_name: str,
     service_name: str,
@@ -304,16 +445,7 @@ def render_service_unit(
     run_as_group: str,
     env_file_path: Path | None,
 ) -> str:
-    exec_args = [
-        sys.executable,
-        "-m",
-        "dbrestore",
-        "run-scheduled",
-        "--profile",
-        profile_name,
-        "--config",
-        str(config_path),
-    ]
+    exec_args = _scheduled_command_args(profile_name, config_path, env_file_path)
     lines = [
         "[Unit]",
         f"Description=dbrestore backup for profile {profile_name}",
@@ -357,10 +489,33 @@ def render_timer_unit(
     return "\n".join(lines)
 
 
+def render_launchd_plist(
+    profile_name: str,
+    job_label: str,
+    config_path: Path,
+    env_file_path: Path | None,
+    on_calendar: str,
+    run_as_user: str,
+    run_as_group: str,
+    unit_dir: Path,
+) -> str:
+    payload: dict[str, Any] = {
+        "Label": job_label,
+        "ProgramArguments": _scheduled_command_args(profile_name, config_path, env_file_path),
+        "WorkingDirectory": str(config_path.parent),
+        "ProcessType": "Background",
+        "StartCalendarInterval": _launchd_calendar_interval(on_calendar),
+    }
+    if _launchd_domain_target(unit_dir) == "system":
+        payload["UserName"] = run_as_user
+        payload["GroupName"] = run_as_group
+    return plistlib.dumps(payload, fmt=plistlib.FMT_XML, sort_keys=False).decode("utf-8")
+
+
 def render_env_template(profile_name: str, env_vars: list[str]) -> str:
     lines = [
         f"# dbrestore environment for profile {profile_name}",
-        "# Fill in the values below and keep this file readable only by root.",
+        "# Fill in the values below and keep this file readable only by the account running the job.",
     ]
     for name in env_vars:
         lines.append(f"{name}=")
@@ -368,40 +523,155 @@ def render_env_template(profile_name: str, env_vars: list[str]) -> str:
     return "\n".join(lines)
 
 
+def _base_schedule_metadata(schedule_paths: SchedulePaths, unit_dir: Path) -> dict[str, Any]:
+    data: dict[str, Any] = {
+        "backend": schedule_paths.backend,
+        "backend_label": schedule_backend_display_name(schedule_paths.backend),
+        "profile": schedule_paths.profile_name,
+        "job_label": schedule_paths.job_label,
+        "definition_name": schedule_paths.definition_name,
+        "definition_path": str(schedule_paths.definition_path),
+        "unit_dir": str(unit_dir),
+        "env_file_path": str(schedule_paths.env_file_path) if schedule_paths.env_vars else None,
+        "env_vars": schedule_paths.env_vars,
+    }
+    if schedule_paths.service_name is not None:
+        data["service_name"] = schedule_paths.service_name
+    if schedule_paths.timer_name is not None:
+        data["timer_name"] = schedule_paths.timer_name
+    if schedule_paths.service_path is not None:
+        data["service_path"] = str(schedule_paths.service_path)
+    if schedule_paths.timer_path is not None:
+        data["timer_path"] = str(schedule_paths.timer_path)
+    if schedule_paths.backend == "launchd":
+        data["job_domain"] = _launchd_domain_target(unit_dir)
+    return data
+
+
 def _build_schedule_paths(
     profile_name: str,
+    backend: str,
     unit_dir: Path,
     env_dir: Path,
     env_vars: list[str],
 ) -> SchedulePaths:
-    basename = _sanitize_unit_name(profile_name)
-    service_name = f"dbrestore-backup-{basename}.service"
-    timer_name = f"dbrestore-backup-{basename}.timer"
+    basename = _sanitize_schedule_name(profile_name)
     env_file_path = env_dir / f"{basename}.env"
+    if backend == "systemd":
+        service_name = f"dbrestore-backup-{basename}.service"
+        timer_name = f"dbrestore-backup-{basename}.timer"
+        return SchedulePaths(
+            profile_name=profile_name,
+            unit_basename=basename,
+            backend=backend,
+            job_label=timer_name,
+            definition_name=timer_name,
+            definition_path=unit_dir / timer_name,
+            env_file_path=env_file_path,
+            env_vars=env_vars,
+            service_name=service_name,
+            timer_name=timer_name,
+            service_path=unit_dir / service_name,
+            timer_path=unit_dir / timer_name,
+        )
+
+    job_label = f"io.dbrestore.backup.{basename}"
+    definition_name = f"{job_label}.plist"
     return SchedulePaths(
         profile_name=profile_name,
         unit_basename=basename,
-        service_name=service_name,
-        timer_name=timer_name,
-        service_path=unit_dir / service_name,
-        timer_path=unit_dir / timer_name,
+        backend=backend,
+        job_label=job_label,
+        definition_name=definition_name,
+        definition_path=unit_dir / definition_name,
         env_file_path=env_file_path,
         env_vars=env_vars,
     )
 
 
-def _sanitize_unit_name(profile_name: str) -> str:
+def _existing_schedule_definition_paths(schedule_paths: SchedulePaths) -> list[Path]:
+    if schedule_paths.backend == "systemd":
+        candidates = [schedule_paths.service_path, schedule_paths.timer_path]
+    else:
+        candidates = [schedule_paths.definition_path]
+    return [path for path in candidates if path is not None and path.exists()]
+
+
+def _sanitize_schedule_name(profile_name: str) -> str:
     sanitized = re.sub(r"[^A-Za-z0-9_.@-]+", "-", profile_name).strip("-")
     if not sanitized:
         raise SchedulingError(
-            f"Unable to derive a valid systemd unit name from profile '{profile_name}'"
+            f"Unable to derive a valid schedule name from profile '{profile_name}'"
         )
     return sanitized
 
 
+def _scheduled_command_args(
+    profile_name: str,
+    config_path: Path,
+    env_file_path: Path | None,
+) -> list[str]:
+    args = [
+        sys.executable,
+        "-m",
+        "dbrestore",
+        "run-scheduled",
+        "--profile",
+        profile_name,
+        "--config",
+        str(config_path),
+    ]
+    if env_file_path is not None:
+        args.extend(["--env-file", str(env_file_path)])
+    return args
+
+
+def _launchd_calendar_interval(on_calendar: str) -> dict[str, int]:
+    if on_calendar == "hourly":
+        return {"Minute": 0}
+    if on_calendar == "daily":
+        return {"Hour": 0, "Minute": 0}
+    if on_calendar == "weekly":
+        return {"Weekday": 1, "Hour": 0, "Minute": 0}
+    raise SchedulingError(
+        f"Unsupported launchd schedule preset '{on_calendar}'. Supported presets: hourly, daily, weekly."
+    )
+
+
+def _launchd_domain_target(unit_dir: Path) -> str:
+    if unit_dir == DEFAULT_LAUNCHD_DAEMON_DIR or unit_dir.is_relative_to(
+        DEFAULT_LAUNCHD_DAEMON_DIR
+    ):
+        return "system"
+    return f"gui/{os.getuid()}"
+
+
+def _launchd_service_target(domain_target: str, job_label: str) -> str:
+    return f"{domain_target}/{job_label}"
+
+
+def _resolve_install_identity(
+    backend: str,
+    unit_dir: Path,
+    run_as_user: str | None,
+    run_as_group: str | None,
+) -> tuple[str, str]:
+    if backend != "launchd":
+        return _resolve_run_identity(run_as_user, run_as_group)
+
+    if _launchd_domain_target(unit_dir) == "system":
+        return _resolve_run_identity(run_as_user, run_as_group)
+
+    if run_as_user is not None or run_as_group is not None:
+        raise SchedulingError(
+            "run_as_user and run_as_group are only supported for launchd plists installed in /Library/LaunchDaemons"
+        )
+    return _resolve_run_identity(None, None)
+
+
 def _resolve_run_identity(run_as_user: str | None, run_as_group: str | None) -> tuple[str, str]:
     if pwd is None or grp is None:
-        raise SchedulingError("Systemd schedule management is only supported on Unix-like systems")
+        raise SchedulingError("Schedule management is only supported on Unix-like systems")
     user_name = run_as_user or _default_run_user()
     try:
         user_info = pwd.getpwnam(user_name)
@@ -422,10 +692,19 @@ def _resolve_run_identity(run_as_user: str | None, run_as_group: str | None) -> 
 
 def _default_run_user() -> str:
     if pwd is None:
-        raise SchedulingError("Systemd schedule management is only supported on Unix-like systems")
+        raise SchedulingError("Schedule management is only supported on Unix-like systems")
     if os.geteuid() == 0 and os.environ.get("SUDO_USER"):
         return os.environ["SUDO_USER"]
     return pwd.getpwuid(os.getuid()).pw_name
+
+
+def _require_supported_schedule_backend() -> str:
+    backend = schedule_backend()
+    if backend == "unsupported":
+        raise SchedulingError(
+            "Schedule management is only supported on Linux (systemd) and macOS (launchd)"
+        )
+    return backend
 
 
 def _run_systemctl(args: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -437,6 +716,18 @@ def _run_systemctl(args: list[str], check: bool = True) -> subprocess.CompletedP
     if check and result.returncode != 0:
         details = result.stderr.strip() or result.stdout.strip() or f"exit code {result.returncode}"
         raise SchedulingError(f"systemctl {' '.join(args)} failed: {details}")
+    return result
+
+
+def _run_launchctl(args: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
+    binary = shutil.which("launchctl")
+    if binary is None:
+        raise SchedulingError("launchctl not found on PATH")
+
+    result = subprocess.run([binary, *args], check=False, capture_output=True, text=True)
+    if check and result.returncode != 0:
+        details = result.stderr.strip() or result.stdout.strip() or f"exit code {result.returncode}"
+        raise SchedulingError(f"launchctl {' '.join(args)} failed: {details}")
     return result
 
 
@@ -460,8 +751,28 @@ def _systemctl_show_property(unit_name: str, properties: list[str]) -> str | Non
     return None
 
 
+def _launchd_disabled_state(domain_target: str, job_label: str) -> bool | None:
+    result = _run_launchctl(["print-disabled", domain_target], check=False)
+    if result.returncode != 0:
+        return None
+
+    pattern = rf'"{re.escape(job_label)}" => (enabled|disabled)'
+    match = re.search(pattern, result.stdout)
+    if match is None:
+        return None
+    return match.group(1) == "disabled"
+
+
+def _launchctl_print_value(output: str, key: str) -> str | None:
+    pattern = rf"^\s*{re.escape(key)} = (.+)$"
+    match = re.search(pattern, output, flags=re.MULTILINE)
+    if match is None:
+        return None
+    return match.group(1).strip()
+
+
 def _build_env_file_path(profile_name: str, env_dir: Path) -> Path:
-    return env_dir / f"{_sanitize_unit_name(profile_name)}.env"
+    return env_dir / f"{_sanitize_schedule_name(profile_name)}.env"
 
 
 def _load_env_values(env_file_path: Path | None) -> dict[str, str]:

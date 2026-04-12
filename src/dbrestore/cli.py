@@ -23,16 +23,20 @@ from dbrestore.operations import (
 )
 from dbrestore.scheduler import (
     DEFAULT_ENV_DIR,
-    DEFAULT_SYSTEMD_UNIT_DIR,
+    DEFAULT_SCHEDULE_UNIT_DIR,
+    SCHEDULE_BACKEND_DISPLAY_NAME,
     install_schedule,
     load_schedule_env_file,
+    load_schedule_env_vars_into_environment,
     remove_schedule,
     save_schedule_env_file,
     schedule_status,
 )
 
 app = typer.Typer(help="Back up and restore supported databases.", no_args_is_help=True)
-schedule_app = typer.Typer(help="Manage systemd-based backup schedules.")
+schedule_app = typer.Typer(
+    help=f"Manage {SCHEDULE_BACKEND_DISPLAY_NAME.lower()}-based backup schedules."
+)
 
 
 def _handle_error(exc: DBRestoreError) -> None:
@@ -52,6 +56,17 @@ def backup_command(
     no_compress: bool = typer.Option(
         False, "--no-compress", help="Disable gzip compression for this backup."
     ),
+    mode: str = typer.Option(
+        "full",
+        "--mode",
+        "-m",
+        help=(
+            "Backup mode: 'full' (default, single artifact), 'differential' "
+            "(chunks shared with last full), or 'incremental' (chunks shared "
+            "with last backup of any kind). Differential/incremental require "
+            "local storage."
+        ),
+    ),
 ) -> None:
     try:
         run_backup(
@@ -60,6 +75,7 @@ def backup_command(
             output_dir_override=output_dir,
             no_compress=no_compress,
             console=typer.echo,
+            mode=mode,
         )
     except DBRestoreError as exc:
         _handle_error(exc)
@@ -71,8 +87,15 @@ def run_scheduled_command(
     config: Path = typer.Option(
         DEFAULT_CONFIG_PATH, "--config", "-c", help="Path to YAML configuration."
     ),
+    env_file: Path | None = typer.Option(
+        None,
+        "--env-file",
+        help="Optional schedule env file to load before reading the config.",
+    ),
 ) -> None:
     try:
+        if env_file is not None:
+            load_schedule_env_vars_into_environment(env_file)
         result = run_scheduled_cycle(profile_name=profile, config_path=config, console=typer.echo)
         typer.echo(
             f"Scheduled cycle completed for profile '{profile}' (verification={result['verification_status']})"
@@ -146,7 +169,7 @@ def preflight_command(
         DEFAULT_CONFIG_PATH, "--config", "-c", help="Path to YAML configuration."
     ),
     unit_dir: Path = typer.Option(
-        DEFAULT_SYSTEMD_UNIT_DIR, "--unit-dir", help="Systemd unit directory."
+        DEFAULT_SCHEDULE_UNIT_DIR, "--unit-dir", help="Scheduler definition directory."
     ),
     env_dir: Path = typer.Option(
         DEFAULT_ENV_DIR, "--env-dir", help="Directory for per-profile env files."
@@ -178,7 +201,7 @@ def status_command(
         DEFAULT_CONFIG_PATH, "--config", "-c", help="Path to YAML configuration."
     ),
     unit_dir: Path = typer.Option(
-        DEFAULT_SYSTEMD_UNIT_DIR, "--unit-dir", help="Systemd unit directory."
+        DEFAULT_SCHEDULE_UNIT_DIR, "--unit-dir", help="Scheduler definition directory."
     ),
     env_dir: Path = typer.Option(
         DEFAULT_ENV_DIR, "--env-dir", help="Directory for per-profile env files."
@@ -278,7 +301,7 @@ def schedule_install_command(
         DEFAULT_CONFIG_PATH, "--config", "-c", help="Path to YAML configuration."
     ),
     unit_dir: Path = typer.Option(
-        DEFAULT_SYSTEMD_UNIT_DIR, "--unit-dir", help="Systemd unit directory."
+        DEFAULT_SCHEDULE_UNIT_DIR, "--unit-dir", help="Scheduler definition directory."
     ),
     env_dir: Path = typer.Option(
         DEFAULT_ENV_DIR, "--env-dir", help="Directory for per-profile env files."
@@ -288,10 +311,10 @@ def schedule_install_command(
         True, "--enable/--no-enable", help="Enable and start the timer after install."
     ),
     run_as_user: str | None = typer.Option(
-        None, "--run-as-user", help="Linux user account the backup service should run as."
+        None, "--run-as-user", help="User account the scheduled job should run as."
     ),
     run_as_group: str | None = typer.Option(
-        None, "--run-as-group", help="Linux group the backup service should run as."
+        None, "--run-as-group", help="Group the scheduled job should run as."
     ),
 ) -> None:
     try:
@@ -305,9 +328,17 @@ def schedule_install_command(
             run_as_user=run_as_user,
             run_as_group=run_as_group,
         )
-        typer.echo(f"Installed {result['timer_name']} for profile '{profile}'")
-        typer.echo(f"Service unit: {result['service_path']}")
-        typer.echo(f"Timer unit: {result['timer_path']}")
+        if result["backend"] == "systemd":
+            typer.echo(f"Installed {result['timer_name']} for profile '{profile}'")
+            typer.echo(f"Timer unit: {result['timer_path']}")
+            typer.echo(f"Service unit: {result['service_path']}")
+        else:
+            typer.echo(
+                f"Installed schedule for profile '{profile}' using {result['backend_label']}"
+            )
+            typer.echo(f"Launchd label: {result['job_label']}")
+            typer.echo(f"Launchd plist: {result['definition_path']}")
+            typer.echo(f"Launchd domain: {result['job_domain']}")
         if result["env_file_path"]:
             typer.echo(f"Env file: {result['env_file_path']}")
             if result["env_template_created"]:
@@ -325,7 +356,7 @@ def schedule_status_command(
         DEFAULT_CONFIG_PATH, "--config", "-c", help="Path to YAML configuration."
     ),
     unit_dir: Path = typer.Option(
-        DEFAULT_SYSTEMD_UNIT_DIR, "--unit-dir", help="Systemd unit directory."
+        DEFAULT_SCHEDULE_UNIT_DIR, "--unit-dir", help="Scheduler definition directory."
     ),
     env_dir: Path = typer.Option(
         DEFAULT_ENV_DIR, "--env-dir", help="Directory for per-profile env files."
@@ -336,10 +367,25 @@ def schedule_status_command(
             profile_name=profile, config_path=config, unit_dir=unit_dir, env_dir=env_dir
         )
         typer.echo(f"Profile: {result['profile']}")
-        typer.echo(
-            f"Timer: {result['timer_name']} ({result['timer_enabled']}, {result['timer_active']})"
-        )
-        typer.echo(f"Service: {result['service_name']} ({result['service_active']})")
+        typer.echo(f"Backend: {result['backend_label']}")
+        if result["backend"] == "systemd":
+            typer.echo(
+                f"Timer: {result['timer_name']} ({result['timer_enabled']}, {result['timer_active']})"
+            )
+            typer.echo(f"Service: {result['service_name']} ({result['service_active']})")
+        else:
+            typer.echo(
+                f"Job: {result['job_label']} "
+                f"(loaded={result['job_loaded']}, state={result['job_state']})"
+            )
+            typer.echo(f"Definition: {result['definition_path']}")
+            typer.echo(f"Domain: {result['job_domain']}")
+            if result["job_enabled"] is not None:
+                typer.echo(f"Enabled: {result['job_enabled']}")
+            if result["job_pid"] is not None:
+                typer.echo(f"PID: {result['job_pid']}")
+            if result["last_exit_code"] is not None:
+                typer.echo(f"Last exit code: {result['last_exit_code']}")
         typer.echo(f"OnCalendar: {result['on_calendar']}")
         typer.echo(f"Persistent: {result['persistent']}")
         if result["verification_target_profile"]:
@@ -410,7 +456,7 @@ def schedule_save_env_command(
 def schedule_remove_command(
     profile: str = typer.Option(..., "--profile", "-p", help="Profile name from the YAML config."),
     unit_dir: Path = typer.Option(
-        DEFAULT_SYSTEMD_UNIT_DIR, "--unit-dir", help="Systemd unit directory."
+        DEFAULT_SCHEDULE_UNIT_DIR, "--unit-dir", help="Scheduler definition directory."
     ),
     env_dir: Path = typer.Option(
         DEFAULT_ENV_DIR, "--env-dir", help="Directory for per-profile env files."

@@ -9,8 +9,11 @@ on:
 
 jobs:
   quality:
-     #well since now we support linux only.. 
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout

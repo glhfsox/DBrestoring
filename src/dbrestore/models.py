@@ -24,6 +24,8 @@ class BackupManifest:
     compression: str
     source: dict[str, Any]
     metadata: dict[str, Any] = field(default_factory=dict)
+    parent_run_id: str | None = None
+    chain: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return json_safe(asdict(self))

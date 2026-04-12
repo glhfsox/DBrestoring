@@ -9,7 +9,7 @@ from typing import Any
 
 from dbrestore.config import DEFAULT_CONFIG_PATH
 from dbrestore.errors import DBRestoreError
-from dbrestore.scheduler import DEFAULT_ENV_DIR, DEFAULT_SYSTEMD_UNIT_DIR
+from dbrestore.scheduler import DEFAULT_ENV_DIR, DEFAULT_SCHEDULE_UNIT_DIR
 
 from .activity_view import ActivityViewMixin
 from .background_tasks import BackgroundTaskRunnerMixin
@@ -115,7 +115,7 @@ class DBRestoreGUI(
             value="Use a separate disposable profile as the verification target."
         )
 
-        self.schedule_unit_dir_var = self.tk.StringVar(value=str(DEFAULT_SYSTEMD_UNIT_DIR))
+        self.schedule_unit_dir_var = self.tk.StringVar(value=str(DEFAULT_SCHEDULE_UNIT_DIR))
         self.schedule_env_dir_var = self.tk.StringVar(value=str(DEFAULT_ENV_DIR))
         self.schedule_status_detail_var = self.tk.StringVar(value="No schedule status loaded")
         self.preflight_include_connection_var = self.tk.BooleanVar(value=True)

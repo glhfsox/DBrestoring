@@ -7,9 +7,10 @@ IDEA : https://roadmap.sh/projects/database-backup-utility
 ## Features
 
 
+- Full, incremental, and differential backup modes (`--mode full|differential|incremental`) with content addressed removal of chunk duplicates 
 - Full backup and restore commands
 - Desktop GUI for profile editing, backup/restore actions, readiness dashboards, schedule management, env-file editing, and history browsing
-- Linux systemd schedule installation for unattended backups
+- Linux systemd and macOS launchd schedule installation for unattended backups
 - Local artifact storage with optional gzip compression
 - Optional S3-compatible artifact storage
 - Automatic retention cleanup for old backup runs
@@ -20,9 +21,8 @@ IDEA : https://roadmap.sh/projects/database-backup-utility
 
 ## Under construction
 
-- Incremental backup
-- Differential backup
-- Full Windows/macOS scheduling support
+- Full Windows scheduling support
+- Richer cross-platform scheduling presets and custom calendar expressions
 - Selective restore for MySQL/MariaDB
 - Selective restore for SQLite
 

@@ -9,7 +9,8 @@ from dbrestore.errors import DBRestoreError
 from dbrestore.operations import collect_profile_status, run_profile_preflight, run_scheduled_cycle
 from dbrestore.scheduler import (
     DEFAULT_ENV_DIR,
-    DEFAULT_SYSTEMD_UNIT_DIR,
+    DEFAULT_SCHEDULE_UNIT_DIR,
+    SCHEDULE_BACKEND_DISPLAY_NAME,
     install_schedule,
     load_schedule_env_file,
     remove_schedule,
@@ -103,12 +104,14 @@ class OperationsViewMixin(GUIBoundMixin):
 
         schedule_card = self.ttk.Frame(right, style="Card.TFrame", padding=18)
         schedule_card.pack(fill="x")
-        self.ttk.Label(schedule_card, text="Systemd Schedule", style="CardTitle.TLabel").grid(
-            row=0, column=0, columnspan=2, sticky="w"
-        )
         self.ttk.Label(
             schedule_card,
-            text="Manage unit installation and status. These actions need filesystem/systemctl access from the GUI process.",
+            text=f"{SCHEDULE_BACKEND_DISPLAY_NAME} Schedule",
+            style="CardTitle.TLabel",
+        ).grid(row=0, column=0, columnspan=2, sticky="w")
+        self.ttk.Label(
+            schedule_card,
+            text="Manage scheduler installation and status. These actions need access to the host scheduler from the GUI process.",
             style="CardText.TLabel",
         ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 14))
         self._add_labeled_entry(schedule_card, 2, "Unit Directory", self.schedule_unit_dir_var)
@@ -324,8 +327,9 @@ class OperationsViewMixin(GUIBoundMixin):
 
     def _handle_schedule_install_completed(self, result: dict[str, Any]) -> None:
         self.refresh_operations_view()
+        schedule_name = result.get("timer_name") or result.get("job_label") or "schedule"
         self._append_operations_output(
-            f"Installed schedule {result['timer_name']} for '{result['profile']}'"
+            f"Installed schedule {schedule_name} for '{result['profile']}'"
         )
         self._report_success(f"Installed schedule for '{result['profile']}'", show_dialog=False)
 
@@ -429,7 +433,7 @@ class OperationsViewMixin(GUIBoundMixin):
         self.operations_text.see("end")
 
     def _schedule_unit_dir(self) -> Path:
-        return Path(self.schedule_unit_dir_var.get().strip() or str(DEFAULT_SYSTEMD_UNIT_DIR))
+        return Path(self.schedule_unit_dir_var.get().strip() or str(DEFAULT_SCHEDULE_UNIT_DIR))
 
     def _schedule_env_dir(self) -> Path:
         return Path(self.schedule_env_dir_var.get().strip() or str(DEFAULT_ENV_DIR))

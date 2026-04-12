@@ -397,6 +397,7 @@ profiles:
         return Result()
 
     monkeypatch.setattr(scheduler_module, "_run_systemctl", fake_run_systemctl)
+    monkeypatch.setattr(scheduler_module.sys, "platform", "linux")
     monkeypatch.setattr(scheduler_module.os, "geteuid", lambda: 1000)
 
     unit_dir = tmp_path / "systemd"
@@ -484,6 +485,7 @@ profiles:
 
         return Result(state_map.get(tuple(args), "unknown\n"))
 
+    monkeypatch.setattr(scheduler_module.sys, "platform", "linux")
     monkeypatch.setattr(scheduler_module, "_run_systemctl", fake_state)
 
     result = runner.invoke(
@@ -589,6 +591,7 @@ profiles:
 
         return Result(state_map.get(tuple(args), "unknown\n"))
 
+    monkeypatch.setattr(scheduler_module.sys, "platform", "linux")
     monkeypatch.setattr(scheduler_module, "_run_systemctl", fake_state)
 
     result = runner.invoke(
@@ -788,6 +791,7 @@ def test_schedule_remove_command_deletes_units(
 
         return Result()
 
+    monkeypatch.setattr(scheduler_module.sys, "platform", "linux")
     monkeypatch.setattr(scheduler_module, "_run_systemctl", fake_run_systemctl)
 
     result = runner.invoke(
