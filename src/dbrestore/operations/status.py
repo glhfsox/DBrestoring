@@ -8,7 +8,7 @@ from typing import Any
 
 from dbrestore.config import DEFAULT_CONFIG_PATH, collect_profile_env_vars, load_config
 from dbrestore.errors import DBRestoreError
-from dbrestore.scheduler import DEFAULT_ENV_DIR, DEFAULT_SYSTEMD_UNIT_DIR, schedule_status
+from dbrestore.scheduler import DEFAULT_ENV_DIR, DEFAULT_SCHEDULE_UNIT_DIR, schedule_status
 from dbrestore.storage import get_storage_backend
 
 from .backup_restore import run_test_connection_with_config, validate_profile_config
@@ -22,7 +22,7 @@ def collect_profile_status(
     profile_name: str,
     config_path: Path = DEFAULT_CONFIG_PATH,
     *,
-    unit_dir: Path = DEFAULT_SYSTEMD_UNIT_DIR,
+    unit_dir: Path = DEFAULT_SCHEDULE_UNIT_DIR,
     env_dir: Path = DEFAULT_ENV_DIR,
 ) -> dict[str, Any]:
     config = load_config(config_path, require_env=False)
@@ -86,7 +86,7 @@ def run_profile_preflight(
     profile_name: str,
     config_path: Path = DEFAULT_CONFIG_PATH,
     *,
-    unit_dir: Path = DEFAULT_SYSTEMD_UNIT_DIR,
+    unit_dir: Path = DEFAULT_SCHEDULE_UNIT_DIR,
     env_dir: Path = DEFAULT_ENV_DIR,
     include_connection: bool = True,
 ) -> dict[str, Any]:
@@ -237,15 +237,23 @@ def _safe_schedule_status(
             "configured": True,
         }
 
-    if not result.get("service_exists") or not result.get("timer_exists"):
+    if not result.get("installed"):
         result["status"] = "warning"
-        result["message"] = "Schedule is configured in YAML but units are not installed"
+        result["message"] = "Schedule is configured in YAML but is not installed"
         return result
 
     result["status"] = "ok"
-    result["message"] = (
-        f"Timer {result['timer_name']} is {result['timer_enabled']}/{result['timer_active']}"
-    )
+    if result["backend"] == "systemd":
+        result["message"] = (
+            f"Timer {result['timer_name']} is {result['timer_enabled']}/{result['timer_active']}"
+        )
+    else:
+        if result.get("job_loaded"):
+            result["message"] = (
+                f"Launchd job {result['job_label']} is loaded ({result['job_state']})"
+            )
+        else:
+            result["message"] = f"Launchd job {result['job_label']} is installed but not loaded"
     return result
 
 

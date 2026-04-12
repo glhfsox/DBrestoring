@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
-import shutil
-import subprocess
 from pathlib import Path
 from typing import Any
 
+from dbrestore.errors import DBRestoreError
 from dbrestore.operations import list_backup_history
 
 from .base import GUIBoundMixin
-from .helpers import pretty_timestamp, restore_option_label, set_widget_state
+from .helpers import (
+    open_path_in_file_manager,
+    pretty_timestamp,
+    restore_option_label,
+    set_widget_state,
+)
 
 
 class BackupsViewMixin(GUIBoundMixin):
@@ -86,11 +90,10 @@ class BackupsViewMixin(GUIBoundMixin):
             )
             return
         target = Path(record["run_dir"])
-        opener = shutil.which("xdg-open")
-        if opener is None:
-            self._show_error("xdg-open is not available on this system.")
-            return
-        subprocess.Popen([opener, str(target)])
+        try:
+            open_path_in_file_manager(target)
+        except DBRestoreError as exc:
+            self._show_error(str(exc))
 
     def restore_selected_backup(self) -> None:
         if not self._save_if_needed():

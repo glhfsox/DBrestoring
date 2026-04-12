@@ -9,7 +9,7 @@ storage: {}
 profiles:
   postgres_local:
     db_type: postgres
-    database: sql_course
+    database: dbrestoring
     host: localhost
     port: 5432
     username: testuser

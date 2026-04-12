@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +19,7 @@ from .base import GUIBoundMixin
 from .helpers import (
     collect_retention_block,
     normalize_db_type_label,
+    open_path_in_file_manager,
     profile_compression_label,
     set_widget_state,
     stringify_optional,
@@ -447,11 +446,10 @@ class ProfileFormMixin(GUIBoundMixin):
             self.refresh_operations_view()
 
     def open_config_file(self) -> None:
-        opener = shutil.which("xdg-open")
-        if opener is None:
-            self._show_error("xdg-open is not available on this system.")
-            return
-        subprocess.Popen([opener, str(self.config_path)])
+        try:
+            open_path_in_file_manager(self.config_path)
+        except DBRestoreError as exc:
+            self._show_error(str(exc))
 
     def _profile_names(self) -> list[str]:
         return sorted(self.raw_config.get("profiles", {}).keys())

@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import os
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
 from dbrestore.config import DB_TYPE_ALIASES
+from dbrestore.errors import DBRestoreError
 from dbrestore.utils import format_display_timestamp, parse_timestamp
 
 
@@ -67,6 +72,24 @@ def set_widget_state(widget: Any, enabled: bool) -> None:
         widget.state(["!disabled"])
     else:
         widget.state(["disabled"])
+
+
+def open_path_in_file_manager(target: Path) -> None:
+    opener = _file_manager_opener()
+    if opener is None:
+        raise DBRestoreError("No supported file opener was found for this operating system.")
+    try:
+        subprocess.Popen([opener, str(target)])
+    except OSError as exc:
+        raise DBRestoreError(f"Unable to open '{target}': {exc}") from exc
+
+
+def _file_manager_opener() -> str | None:
+    if sys.platform == "darwin":
+        return shutil.which("open")
+    if os.name == "nt":
+        return shutil.which("explorer")
+    return shutil.which("xdg-open")
 
 
 PALETTE = {

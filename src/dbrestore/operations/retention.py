@@ -6,9 +6,18 @@ from datetime import UTC, timedelta
 from pathlib import Path
 from typing import Any
 
+from dbrestore.chunking import (
+    collect_referenced_hashes,
+    profile_chunk_store,
+)
 from dbrestore.config import AppConfig, ProfileModel, RetentionModel
 from dbrestore.logging import RunLogger
-from dbrestore.storage import BackupRunRecord, StorageBackend, get_storage_backend
+from dbrestore.storage import (
+    BackupRunRecord,
+    LocalStorageBackend,
+    StorageBackend,
+    get_storage_backend,
+)
 from dbrestore.utils import current_time
 
 
@@ -47,10 +56,31 @@ def apply_retention_policy(
             f"Retention removed {len(deleted_runs)} old backup run(s) for profile '{profile_name}'"
         )
 
+    gc_deleted = 0
+    if deleted_runs and isinstance(storage, LocalStorageBackend):
+        gc_deleted = _gc_profile_chunk_store(output_dir / profile_name)
+        if gc_deleted:
+            logger.log_event(
+                "retention.chunks_gc",
+                {
+                    "profile": profile_name,
+                    "chunks_deleted": gc_deleted,
+                },
+            )
+
     return {
         "deleted_count": len(deleted_runs),
         "deleted_runs": deleted_runs,
+        "chunks_deleted": gc_deleted,
     }
+
+
+def _gc_profile_chunk_store(profile_dir: Path) -> int:
+    store = profile_chunk_store(profile_dir)
+    if not store.root.exists():
+        return 0
+    referenced = collect_referenced_hashes(profile_dir)
+    return store.delete_unreferenced(referenced)
 
 
 def summarize_retention_policy(
