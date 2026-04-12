@@ -189,7 +189,13 @@ class LocalStorageBackend(StorageBackend):
                 )
             )
 
-        runs.sort(key=lambda item: item.finished_at, reverse=True)
+        runs.sort(
+            key=lambda item: (
+                item.finished_at,
+                Path(item.manifest_path).stat().st_mtime_ns,
+            ),
+            reverse=True,
+        )
         return runs
 
     def delete_backup_runs(self, runs: list[BackupRunRecord]) -> list[str]:
