@@ -5,7 +5,21 @@ on:
     branches:
       - main
       - master
+    paths-ignore:
+      - "*.md"
+      - ".gitignore"
+      - "LICENSE"
+      - "docs/**"
+      - "*.yaml"
+      - "!.github/**"
   pull_request:
+    paths-ignore:
+      - "*.md"
+      - ".gitignore"
+      - "LICENSE"
+      - "docs/**"
+      - "*.yaml"
+      - "!.github/**"
 
 jobs:
   quality:
