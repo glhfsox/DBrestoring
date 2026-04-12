@@ -21,10 +21,10 @@ IDEA : https://roadmap.sh/projects/database-backup-utility
 
 ## Under construction
 
-- Full Windows scheduling support
 - Richer cross-platform scheduling presets and custom calendar expressions
-- Selective restore for MySQL/MariaDB
-- Selective restore for SQLite
+- Variable size chunking
+- GPG
+- Web-UI
 
 ## Selective restore
 
