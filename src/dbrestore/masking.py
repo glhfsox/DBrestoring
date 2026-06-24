@@ -109,29 +109,62 @@ def mask_value(strategy: str, value: object, key: bytes, *, constant: str | None
     raise ConfigError(f"Unknown masking strategy: {strategy!r}. Expected one of {STRATEGIES}.")
 
 
+@dataclass(frozen=True)
+class Dialect:
+    quote_open: str
+    quote_close: str
+    placeholder: str
+
+
+SQLITE = Dialect('"', '"', "?")
+POSTGRES = Dialect('"', '"', "%s")
+MYSQL = Dialect("`", "`", "%s")
+
+
+def _quote(dialect: Dialect, identifier: str) -> str:
+    return f"{dialect.quote_open}{validate_identifier(identifier)}{dialect.quote_close}"
+
+
+def apply_masking(conn, rules: list[MaskRule], key: bytes, dialect: Dialect) -> dict[str, int]:
+    """Apply masking rules in place over a DB-API 2.0 connection.
+
+    Uses value-based UPDATEs (no rowid/primary key required), so the same logic
+    works for SQLite, PostgreSQL, and MySQL/MariaDB — only quoting and the
+    parameter placeholder differ per dialect. Masking is deterministic, so every
+    row sharing a value gets the same masked value. Returns distinct values
+    changed per rule.
+    """
+    counts: dict[str, int] = {}
+    ph = dialect.placeholder
+    cursor = conn.cursor()
+    try:
+        for rule in rules:
+            if rule.strategy not in STRATEGIES:
+                raise ConfigError(
+                    f"Unknown masking strategy: {rule.strategy!r}. Expected one of {STRATEGIES}."
+                )
+            table = _quote(dialect, rule.table)
+            column = _quote(dialect, rule.column)
+
+            cursor.execute(f"SELECT DISTINCT {column} FROM {table} WHERE {column} IS NOT NULL")
+            mapping: list[tuple[object, object]] = []
+            for (value,) in cursor.fetchall():
+                masked = mask_value(rule.strategy, value, key, constant=rule.value)
+                if masked != value:
+                    mapping.append((masked, value))
+
+            if mapping:
+                cursor.executemany(
+                    f"UPDATE {table} SET {column} = {ph} WHERE {column} = {ph}", mapping
+                )
+            counts[f"{rule.table}.{rule.column}"] = len(mapping)
+    finally:
+        cursor.close()
+    conn.commit()
+    return counts
+
+
 def apply_masking_sqlite(
     conn: sqlite3.Connection, rules: list[MaskRule], key: bytes
 ) -> dict[str, int]:
-    """Apply masking rules in place to a SQLite connection. Returns rows changed per rule."""
-    counts: dict[str, int] = {}
-    for rule in rules:
-        if rule.strategy not in STRATEGIES:
-            raise ConfigError(
-                f"Unknown masking strategy: {rule.strategy!r}. Expected one of {STRATEGIES}."
-            )
-        table = validate_identifier(rule.table)
-        column = validate_identifier(rule.column)
-
-        rows = conn.execute(f'SELECT rowid, "{column}" FROM "{table}"').fetchall()
-        updates: list[tuple[object, int]] = []
-        for rowid, value in rows:
-            masked = mask_value(rule.strategy, value, key, constant=rule.value)
-            if masked != value:
-                updates.append((masked, rowid))
-
-        if updates:
-            conn.executemany(f'UPDATE "{table}" SET "{column}" = ? WHERE rowid = ?', updates)
-        counts[f"{table}.{column}"] = len(updates)
-
-    conn.commit()
-    return counts
+    return apply_masking(conn, rules, key, SQLITE)

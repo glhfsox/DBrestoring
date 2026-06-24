@@ -154,7 +154,9 @@ def restore_command(
 @app.command("sanitize")
 def sanitize_command(
     profile: str = typer.Option(..., "--profile", "-p", help="Source profile to pull and mask."),
-    output: Path = typer.Option(..., "--output", "-o", help="Path for the sanitized copy."),
+    output: Path | None = typer.Option(
+        None, "--output", "-o", help="Path for the sanitized dump (optional for Postgres/MySQL)."
+    ),
     config: Path = typer.Option(
         DEFAULT_CONFIG_PATH, "--config", "-c", help="Path to YAML configuration."
     ),
@@ -162,7 +164,7 @@ def sanitize_command(
         None,
         "--target-profile",
         "-t",
-        help="Optionally restore the sanitized copy into this profile.",
+        help="Scratch DB to mask in (required for Postgres/MySQL; optional restore target for SQLite).",
     ),
 ) -> None:
     try:

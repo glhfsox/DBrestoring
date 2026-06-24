@@ -79,13 +79,20 @@ profiles:
 ```
 
 ```bash
+# SQLite: mask the dumped file directly
 dbrestore sanitize --profile prod --output ./sanitized.sqlite
 dbrestore sanitize --profile prod --output ./sanitized.sqlite --target-profile staging
+
+# Postgres/MySQL/MariaDB: mask via a scratch DB, then dump the sanitized result
+dbrestore sanitize --profile prod_pg --target-profile scratch_pg --output ./sanitized.dump
 ```
 
 Strategies: `email`, `name`, `phone`, `hash`, `redact`, `constant`, `null`.
-Currently supports SQLite profiles; Postgres/MySQL masking (restore into a scratch
-target, mask, re-dump) is the next step.
+
+SQLite is masked directly on the dumped file. Postgres/MySQL/MariaDB go through a
+scratch `--target-profile`: dbrestore backs up the source, restores it into the
+scratch database, masks it there with SQL, and (with `--output`) dumps the
+sanitized result. The source database is never modified.
 
 ## Installation
 

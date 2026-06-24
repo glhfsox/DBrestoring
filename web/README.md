@@ -44,6 +44,14 @@ Control plane (required for `/console` and ingestion):
 | `AUTH_SECRET` | Secret used to sign admin session cookies |
 | `ADMIN_PASSWORD` | Password for the `/console` login |
 
+Missed-backup alerting (optional):
+
+| Variable | Purpose |
+| --- | --- |
+| `ALERT_TO_EMAIL` | Where alert emails go (falls back to `CONTACT_TO_EMAIL`) |
+| `ALERT_MAX_AGE_HOURS` | A server is "overdue" if its last successful backup is older than this (default 26) |
+| `CRON_SECRET` | Secures `/api/cron/check-backups`; Vercel Cron sends it automatically |
+
 Set up Turso (free) with `turso db create dbrestore` then `turso db show` /
 `turso db tokens create` for the URL and token.
 
@@ -60,6 +68,14 @@ ingestion endpoint is gated by `INGEST_TOKEN`.
 
 `/console/audit` shows a security audit log — console sign-ins (success and
 failure) and rejected agent requests, each with timestamp and client IP.
+
+**Missed-backup alerting:** a Vercel Cron job (`vercel.json`, daily) hits
+`/api/cron/check-backups`, which emails you when a server hasn't reported a
+successful backup within `ALERT_MAX_AGE_HOURS`, or when its latest run failed.
+State is tracked per server so you get one alert per incident (and a recovery
+note), not one per run. Trigger it manually to test:
+`curl -H "authorization: Bearer $CRON_SECRET" https://YOUR-SITE/api/cron/check-backups`.
+(The free Vercel plan runs crons once per day.)
 
 This is the foundation; per-server tokens, RBAC, and SSO build on this schema next.
 

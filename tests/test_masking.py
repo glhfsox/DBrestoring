@@ -7,7 +7,10 @@ import pytest
 
 from dbrestore.errors import ConfigError, DBRestoreError
 from dbrestore.masking import (
+    MYSQL,
+    POSTGRES,
     MaskRule,
+    apply_masking,
     apply_masking_sqlite,
     derive_key,
     mask_value,
@@ -170,3 +173,90 @@ profiles:
     )
     with pytest.raises(DBRestoreError, match="No masking rules"):
         run_sanitize(profile_name="prod", output_path=tmp_path / "o.sqlite", config_path=cfg)
+
+
+class _FakeCursor:
+    def __init__(self, distinct):
+        self.distinct = distinct
+        self.selects: list[str] = []
+        self.updates: list[tuple[str, list]] = []
+
+    def execute(self, sql, params=None):
+        self.selects.append(sql)
+
+    def fetchall(self):
+        return [(v,) for v in self.distinct]
+
+    def executemany(self, sql, seq):
+        self.updates.append((sql, list(seq)))
+
+    def close(self):
+        pass
+
+
+class _FakeConn:
+    def __init__(self, distinct):
+        self._cur = _FakeCursor(distinct)
+        self.committed = False
+
+    def cursor(self):
+        return self._cur
+
+    def commit(self):
+        self.committed = True
+
+
+def test_apply_masking_postgres_dialect():
+    conn = _FakeConn(["a@corp.com", "b@corp.com"])
+    counts = apply_masking(conn, [MaskRule("users", "email", "email")], KEY, POSTGRES)
+    cur = conn._cur
+    assert cur.selects == ['SELECT DISTINCT "email" FROM "users" WHERE "email" IS NOT NULL']
+    sql, seq = cur.updates[0]
+    assert sql == 'UPDATE "users" SET "email" = %s WHERE "email" = %s'
+    assert len(seq) == 2
+    assert counts["users.email"] == 2
+    assert conn.committed is True
+
+
+def test_apply_masking_mysql_dialect_uses_backticks():
+    conn = _FakeConn(["x"])
+    apply_masking(conn, [MaskRule("t", "c", "hash")], KEY, MYSQL)
+    cur = conn._cur
+    assert cur.selects[0] == "SELECT DISTINCT `c` FROM `t` WHERE `c` IS NOT NULL"
+    assert cur.updates[0][0] == "UPDATE `t` SET `c` = %s WHERE `c` = %s"
+
+
+def _engine_config(tmp_path: Path, db_type: str) -> Path:
+    cfg = tmp_path / "dbrestore.yaml"
+    cfg.write_text(
+        f"""
+version: 1
+defaults:
+  output_dir: {tmp_path / "backups"}
+  log_dir: {tmp_path / "logs"}
+profiles:
+  src:
+    db_type: {db_type}
+    host: localhost
+    port: 5432
+    username: app
+    database: appdb
+    masking:
+      rules:
+        - {{ table: users, column: email, strategy: email }}
+""".strip(),
+        encoding="utf-8",
+    )
+    return cfg
+
+
+def test_run_sanitize_postgres_requires_target(tmp_path):
+    cfg = _engine_config(tmp_path, "postgres")
+    with pytest.raises(DBRestoreError, match="requires --target-profile"):
+        run_sanitize(profile_name="src", config_path=cfg)
+
+
+def test_run_sanitize_mongo_not_supported(tmp_path):
+    cfg = _engine_config(tmp_path, "mongo")
+    with pytest.raises(DBRestoreError, match="not supported"):
+        run_sanitize(profile_name="src", config_path=cfg)

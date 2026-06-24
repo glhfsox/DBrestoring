@@ -55,6 +55,13 @@ async function ensureSchema(): Promise<void> {
     )
   `);
   await c.execute(`CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log (at DESC)`);
+  await c.execute(`
+    CREATE TABLE IF NOT EXISTS alerts (
+      server_id TEXT PRIMARY KEY,
+      state TEXT NOT NULL,
+      since INTEGER NOT NULL
+    )
+  `);
 }
 
 function init(): Promise<void> {
@@ -267,4 +274,48 @@ export async function listAudit(limit = 100): Promise<AuditEntry[]> {
     ip: strOrNull(row.ip),
     detail: strOrNull(row.detail),
   }));
+}
+
+export type ServerHealth = {
+  id: string;
+  name: string;
+  lastReportedAt: number | null;
+  lastStatus: string | null;
+  lastSuccessAt: number | null;
+};
+
+export async function serverHealth(): Promise<ServerHealth[]> {
+  await init();
+  const res = await getClient().execute(`
+    SELECT
+      s.id, s.name,
+      (SELECT MAX(reported_at) FROM backup_runs r WHERE r.server_id = s.id) AS last_reported,
+      (SELECT r.status FROM backup_runs r WHERE r.server_id = s.id ORDER BY r.reported_at DESC LIMIT 1) AS last_status,
+      (SELECT MAX(reported_at) FROM backup_runs r WHERE r.server_id = s.id AND r.status = 'success') AS last_success
+    FROM servers s
+  `);
+  return res.rows.map((row) => ({
+    id: str(row.id),
+    name: str(row.name),
+    lastReportedAt: numOrNull(row.last_reported),
+    lastStatus: strOrNull(row.last_status),
+    lastSuccessAt: numOrNull(row.last_success),
+  }));
+}
+
+export async function getAlertStates(): Promise<Map<string, string>> {
+  await init();
+  const res = await getClient().execute("SELECT server_id, state FROM alerts");
+  const states = new Map<string, string>();
+  for (const row of res.rows) states.set(str(row.server_id), str(row.state));
+  return states;
+}
+
+export async function setAlertState(serverId: string, state: string, since: number): Promise<void> {
+  await init();
+  await getClient().execute({
+    sql: `INSERT INTO alerts (server_id, state, since) VALUES (?, ?, ?)
+          ON CONFLICT(server_id) DO UPDATE SET state = excluded.state, since = excluded.since`,
+    args: [serverId, state, since],
+  });
 }
