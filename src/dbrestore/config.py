@@ -92,6 +92,16 @@ UniqueKeyLoader.add_constructor(
 )
 
 
+class EncryptionModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    passphrase: SecretStr
+
+    @property
+    def passphrase_value(self) -> str:
+        return self.passphrase.get_secret_value()
+
+
 class DefaultsModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -100,6 +110,7 @@ class DefaultsModel(BaseModel):
     compression: Literal["gzip", "none"] = "gzip"
     retention: RetentionModel | None = None
     notifications: NotificationsModel | None = None
+    encryption: EncryptionModel | None = None
 
 
 class RetentionModel(BaseModel):
@@ -208,6 +219,7 @@ class ProfileModel(BaseModel):
     schedule: ScheduleModel | None = None
     verification: VerificationModel | None = None
     notifications: NotificationsModel | None = None
+    encryption: EncryptionModel | None = None
     _base_dir: Path = PrivateAttr(default=Path.cwd())
 
     @field_validator("db_type", mode="before")
@@ -388,6 +400,15 @@ class AppConfig(BaseModel):
         if not settings:
             return None
         return RetentionModel.model_validate(settings)
+
+    def encryption_for(
+        self, profile: ProfileModel, cli_passphrase: str | None = None
+    ) -> EncryptionModel | None:
+        if cli_passphrase:
+            return EncryptionModel(passphrase=SecretStr(cli_passphrase))
+        if profile.encryption is not None:
+            return profile.encryption
+        return self.defaults.encryption
 
     def notifications_for(self, profile: ProfileModel) -> NotificationsModel | None:
         if profile.notifications is not None:

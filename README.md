@@ -8,6 +8,7 @@ IDEA : https://roadmap.sh/projects/database-backup-utility
 
 
 - Full, incremental, and differential backup modes (`--mode full|differential|incremental`) with content addressed removal of chunk duplicates 
+- Optional AES-256-GCM encryption of backup artifacts (`--passphrase` or `encryption.passphrase` in config)
 - Full backup and restore commands
 - Desktop GUI for profile editing, backup/restore actions, readiness dashboards, schedule management, env-file editing, and history browsing
 - Linux systemd and macOS launchd schedule installation for unattended backups
@@ -32,6 +33,29 @@ IDEA : https://roadmap.sh/projects/database-backup-utility
 - MongoDB supports selective collection restore via repeated `--collection`.
 - MySQL/MariaDB and SQLite selective restore are intentionally rejected with the current backup formats.
 
+## Encryption
+
+Artifacts can be encrypted at rest with AES-256-GCM (scrypt-derived key, random
+salt and nonce per file). Encrypted files get a `.enc` extension and are detected
+automatically on restore; a wrong passphrase is rejected by the GCM tag.
+
+Pass it on the CLI or via `DBRESTORE_PASSPHRASE`:
+
+```bash
+dbrestore backup --profile local_pg --passphrase secret
+dbrestore restore --profile local_pg --input ./backups/local_pg/<run> --passphrase secret
+```
+
+Or in config:
+
+```yaml
+defaults:
+  encryption:
+    passphrase: ${DBRESTORE_PASSPHRASE}
+```
+
+Works with `--mode full` only, not the chunked differential/incremental modes.
+
 ## Installation
 
 ```bash
@@ -49,6 +73,33 @@ For development:
 ```bash
 pip install -e '.[dev]'
 ```
+
+## Docker
+
+The release workflow publishes an image with the DB client tools (`pg_dump`,
+`mysqldump`, `mongodump`, …) included:
+
+```bash
+docker pull ghcr.io/glhfsox/dbrestoring:latest
+```
+
+The CLI is the entrypoint, so arguments after the image name are `dbrestore`
+subcommands. Mount the config and an artifacts directory:
+
+```bash
+docker run --rm \
+  -v "$(pwd)/dbrestore.yaml:/work/dbrestore.yaml:ro" \
+  -v "$(pwd)/backups:/work/backups" \
+  ghcr.io/glhfsox/dbrestoring:latest backup --profile local_pg
+```
+
+Add `-e DBRESTORE_PASSPHRASE` to pass an encryption passphrase, and `--network host`
+to reach a database on the host. The GUI is not in the image.
+
+## Running 24/7 on a server
+
+For unattended scheduled backups on a Linux server, see [deploy/](deploy/): the
+Docker image driven by a systemd timer. It runs on a schedule and survives reboots.
 
 ## Example configuration
 
@@ -136,6 +187,7 @@ dbrestore preflight --profile local_pg
 dbrestore status --profile local_pg
 dbrestore test-connection --profile local_pg
 dbrestore backup --profile local_pg
+dbrestore backup --profile local_pg --passphrase "correct horse battery staple"
 dbrestore run-scheduled --profile local_pg
 dbrestore verify-latest --profile local_pg --target-profile local_pg_verify
 dbrestore restore --profile local_pg --input ./backups/local_pg/20260315T120000_abcd1234

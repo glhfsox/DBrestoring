@@ -67,6 +67,13 @@ def backup_command(
             "local storage."
         ),
     ),
+    encrypt_passphrase: str | None = typer.Option(
+        None,
+        "--passphrase",
+        help="Encrypt the backup artifact with this passphrase (AES-256-GCM). "
+        "Also configurable via encryption.passphrase in the YAML config.",
+        envvar="DBRESTORE_PASSPHRASE",
+    ),
 ) -> None:
     try:
         run_backup(
@@ -76,6 +83,7 @@ def backup_command(
             no_compress=no_compress,
             console=typer.echo,
             mode=mode,
+            passphrase=encrypt_passphrase,
         )
     except DBRestoreError as exc:
         _handle_error(exc)
@@ -121,6 +129,12 @@ def restore_command(
         "--collection",
         help="MongoDB collection to restore. Repeat this option for multiple collections.",
     ),
+    encrypt_passphrase: str | None = typer.Option(
+        None,
+        "--passphrase",
+        help="Passphrase to decrypt an encrypted backup artifact (AES-256-GCM).",
+        envvar="DBRESTORE_PASSPHRASE",
+    ),
 ) -> None:
     try:
         run_restore(
@@ -130,6 +144,7 @@ def restore_command(
             tables=table,
             collections=collection,
             console=typer.echo,
+            passphrase=encrypt_passphrase,
         )
     except DBRestoreError as exc:
         _handle_error(exc)

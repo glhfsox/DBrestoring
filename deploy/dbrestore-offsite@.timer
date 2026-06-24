@@ -1,0 +1,11 @@
+[Unit]
+Description=Scheduled offsite sync of dbrestore backups for profile %i
+
+[Timer]
+# Runs an hour after the default backup time so the night's backup is included.
+OnCalendar=*-*-* 03:00:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

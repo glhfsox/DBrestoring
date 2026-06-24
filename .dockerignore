@@ -1,0 +1,15 @@
+.git
+.github
+.venv
+venv
+backups
+logs
+dist
+build
+*.egg-info
+__pycache__
+.pytest_cache
+.ruff_cache
+.DS_Store
+*.log
+tests

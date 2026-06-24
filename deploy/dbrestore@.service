@@ -1,0 +1,39 @@
+[Unit]
+Description=dbrestore backup (profile %i)
+Documentation=https://github.com/glhfsox/DBrestoring
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+
+# Loads secrets (DB creds, DBRESTORE_PASSPHRASE) and the optional HC_PING_KEY
+# used by the healthcheck pings below.
+EnvironmentFile=/etc/dbrestore/dbrestore.env
+
+# Tell healthchecks.io a run started (no-op if HC_PING_KEY is unset). The slug
+# auto-creates one check per profile: "dbrestore-<profile>".
+ExecStartPre=-/bin/sh -c 'test -n "$HC_PING_KEY" && curl -fsS -m 10 "https://hc-ping.com/$HC_PING_KEY/dbrestore-%i/start" || true'
+
+# Refresh the image before each run (the leading "-" ignores pull failures so a
+# transient registry outage doesn't block a backup from a cached image).
+ExecStartPre=-/usr/bin/docker pull ghcr.io/glhfsox/dbrestoring:latest
+
+# --network host lets the container reach a database listening on THIS box's
+# localhost. Remove it if your DB is on another host you reference by address
+# in dbrestore.yaml.
+ExecStart=/usr/bin/docker run --rm \
+    --name dbrestore-%i \
+    --network host \
+    --env-file /etc/dbrestore/dbrestore.env \
+    -v /etc/dbrestore/dbrestore.yaml:/work/dbrestore.yaml:ro \
+    -v /var/lib/dbrestore/backups:/work/backups \
+    ghcr.io/glhfsox/dbrestoring:latest \
+    backup --profile %i
+
+# Ping success or /fail depending on how the run ended (no-op without a key).
+ExecStopPost=-/bin/sh -c 'test -n "$HC_PING_KEY" || exit 0; if [ "$SERVICE_RESULT" = success ]; then curl -fsS -m 10 --retry 3 "https://hc-ping.com/$HC_PING_KEY/dbrestore-%i"; else curl -fsS -m 10 "https://hc-ping.com/$HC_PING_KEY/dbrestore-%i/fail"; fi'
+
+# Don't let a stuck backup run forever.
+TimeoutStartSec=3600

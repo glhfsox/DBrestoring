@@ -1,0 +1,27 @@
+[Unit]
+Description=dbrestore offsite sync (profile %i) -> S3-compatible storage
+Documentation=https://github.com/glhfsox/DBrestoring
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+
+# Provides the RCLONE_* and OFFSITE_BUCKET values (and optional HC_PING_KEY).
+EnvironmentFile=/etc/dbrestore/dbrestore.env
+
+ExecStartPre=-/bin/sh -c 'test -n "$HC_PING_KEY" && curl -fsS -m 10 "https://hc-ping.com/$HC_PING_KEY/dbrestore-offsite-%i/start" || true'
+
+# Mirror the local backups for this profile to the offsite bucket. rclone reads
+# its remote entirely from RCLONE_CONFIG_OFFSITE_* env vars, so no config file
+# is needed. --immutable avoids re-uploading or deleting already-shipped runs.
+ExecStart=/usr/bin/docker run --rm \
+    --env-file /etc/dbrestore/dbrestore.env \
+    -v /var/lib/dbrestore/backups/%i:/data:ro \
+    rclone/rclone:latest \
+    copy --immutable -v /data "offsite:${OFFSITE_BUCKET}/%i"
+
+ExecStopPost=-/bin/sh -c 'test -n "$HC_PING_KEY" || exit 0; if [ "$SERVICE_RESULT" = success ]; then curl -fsS -m 10 --retry 3 "https://hc-ping.com/$HC_PING_KEY/dbrestore-offsite-%i"; else curl -fsS -m 10 "https://hc-ping.com/$HC_PING_KEY/dbrestore-offsite-%i/fail"; fi'
+
+TimeoutStartSec=3600

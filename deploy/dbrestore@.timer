@@ -1,0 +1,16 @@
+[Unit]
+Description=Scheduled dbrestore backup for profile %i
+
+[Timer]
+# Daily at 02:00 server-local time. Edit freely; see `man systemd.time`.
+# Examples: hourly -> "*-*-* *:00:00", every 6h -> "*-*-* 0/6:00:00".
+OnCalendar=*-*-* 02:00:00
+
+# If the machine was off at the scheduled time, run as soon as it is back up.
+Persistent=true
+
+# Jitter so backups don't all fire at the exact same second.
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

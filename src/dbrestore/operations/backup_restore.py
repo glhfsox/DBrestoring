@@ -19,6 +19,7 @@ from dbrestore.chunking import (
     write_chunks_manifest,
 )
 from dbrestore.config import DEFAULT_CONFIG_PATH, AppConfig, load_config
+from dbrestore.encryption import ENCRYPTED_EXTENSION, decrypt_file, encrypt_file, is_encrypted
 from dbrestore.errors import ArtifactError, ConfigError
 from dbrestore.logging import RunLogger
 from dbrestore.models import BackupManifest
@@ -59,6 +60,7 @@ def run_backup(
     console: Callable[[str], None] | None = None,
     progress: ProgressCallback | None = None,
     mode: str = "full",
+    passphrase: str | None = None,
 ) -> dict[str, Any]:
     if mode not in BACKUP_MODES:
         raise ConfigError(
@@ -80,11 +82,20 @@ def run_backup(
     compression_enabled = config.compression_enabled_for(profile, cli_disable=no_compress)
     storage = storage_backend or get_storage_backend(config)
 
+    encryption = config.encryption_for(profile, cli_passphrase=passphrase)
+    if encryption is not None:
+        redactor.add(encryption.passphrase_value)
+
     chunked_mode = mode != "full"
     if chunked_mode and not isinstance(storage, LocalStorageBackend):
         raise ConfigError(
             "differential and incremental backups require local storage; "
             "configure storage.type=local to use these modes."
+        )
+    if chunked_mode and encryption is not None:
+        raise ConfigError(
+            "encryption is not supported with differential/incremental backup modes; "
+            "use --mode full with encryption, or remove the encryption config."
         )
 
     emit_progress(progress, message="Running backup preflight checks", percent=12)
@@ -138,12 +149,21 @@ def run_backup(
                 emit_progress(
                     progress,
                     message="Compressing backup artifact",
-                    percent=78,
-                    target_percent=88,
+                    percent=75,
+                    target_percent=82,
                     mode="auto",
                 )
                 artifact_path = gzip_compress(prepared.artifact_path)
                 prepared.artifact_path.unlink()
+
+            encryption_label = "none"
+            if encryption is not None:
+                emit_progress(progress, message="Encrypting backup artifact", percent=84)
+                encrypted_path = artifact_path.with_name(artifact_path.name + ENCRYPTED_EXTENSION)
+                encrypt_file(artifact_path, encrypted_path, encryption.passphrase_value)
+                artifact_path.unlink()
+                artifact_path = encrypted_path
+                encryption_label = "aes-256-gcm"
 
             finished_at = current_time()
             manifest = BackupManifest(
@@ -157,7 +177,7 @@ def run_backup(
                 artifact_path=str(artifact_path),
                 compression="gzip" if compression_enabled else "none",
                 source=profile.public_source_metadata(),
-                metadata=metadata,
+                metadata=metadata | {"encryption": encryption_label},
             )
         stored_run = storage.finalize_backup(
             profile_name=profile_name,
@@ -330,6 +350,7 @@ def run_restore(
     collections: list[str] | None = None,
     notify: bool = True,
     progress: ProgressCallback | None = None,
+    passphrase: str | None = None,
 ) -> dict[str, Any]:
     emit_progress(progress, message=f"Loading restore profile '{profile_name}'", percent=5)
     config = load_config(config_path)
@@ -338,6 +359,9 @@ def run_restore(
     storage = get_storage_backend(config)
     redactor = build_redactor(profile)
     redactor.add(config.storage.secret_access_key_value, config.storage.session_token_value)
+    encryption = config.encryption_for(profile, cli_passphrase=passphrase)
+    if encryption is not None:
+        redactor.add(encryption.passphrase_value)
     notification_settings = config.notifications_for(profile) if notify else None
     if notification_settings is not None and notification_settings.slack is not None:
         redactor.add(notification_settings.slack.webhook_url_value)
@@ -379,6 +403,21 @@ def run_restore(
             if resolved.cleanup_dir is not None:
                 stack.callback(shutil.rmtree, resolved.cleanup_dir, ignore_errors=True)
             source_path = resolved_artifact
+            if is_encrypted(resolved_artifact):
+                if encryption is None:
+                    raise ArtifactError(
+                        "Backup artifact is encrypted but no passphrase was provided. "
+                        "Use --passphrase or configure encryption.passphrase in the config."
+                    )
+                emit_progress(progress, message="Decrypting backup artifact", percent=30)
+                temp_dir = Path(stack.enter_context(tempfile.TemporaryDirectory()))
+                decrypted_name = resolved_artifact.name
+                if decrypted_name.endswith(ENCRYPTED_EXTENSION):
+                    decrypted_name = decrypted_name[: -len(ENCRYPTED_EXTENSION)]
+                source_path = decrypt_file(
+                    resolved_artifact, temp_dir / decrypted_name, encryption.passphrase_value
+                )
+                resolved_artifact = source_path
             is_chunked = manifest is not None and manifest.get("compression") == CHUNKED_COMPRESSION
             if is_chunked:
                 emit_progress(
