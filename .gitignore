@@ -13,3 +13,4 @@ backups/
 *.yaml
 *venv/
 *.*/
+local-demo/

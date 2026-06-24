@@ -23,14 +23,16 @@ def _logger(tmp_path: Path) -> RunLogger:
 
 
 class _FakeResponse:
+    status = 201
+
     def __enter__(self):
         return self
 
     def __exit__(self, *args):
         return False
 
-    def read(self) -> bytes:
-        return b"{}"
+    def read(self, *args) -> bytes:
+        return b'{"ok": true}'
 
 
 def test_build_payload_maps_fields_and_defaults_server_id():

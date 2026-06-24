@@ -18,6 +18,7 @@ from .history import (
     list_run_log_events,
 )
 from .retention import apply_retention_policy, summarize_retention_policy
+from .sanitize import run_sanitize
 from .status import collect_profile_status, run_profile_preflight
 from .verification import configured_verification_target, run_verify_latest_backup
 
@@ -33,6 +34,7 @@ __all__ = [
     "run_backup",
     "run_profile_preflight",
     "run_restore",
+    "run_sanitize",
     "run_scheduled_cycle",
     "run_test_connection",
     "run_test_connection_with_config",

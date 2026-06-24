@@ -16,6 +16,7 @@ from dbrestore.operations import (
     run_backup,
     run_profile_preflight,
     run_restore,
+    run_sanitize,
     run_scheduled_cycle,
     run_test_connection,
     run_validate_config,
@@ -145,6 +146,35 @@ def restore_command(
             collections=collection,
             console=typer.echo,
             passphrase=encrypt_passphrase,
+        )
+    except DBRestoreError as exc:
+        _handle_error(exc)
+
+
+@app.command("sanitize")
+def sanitize_command(
+    profile: str = typer.Option(..., "--profile", "-p", help="Source profile to pull and mask."),
+    output: Path = typer.Option(..., "--output", "-o", help="Path for the sanitized copy."),
+    config: Path = typer.Option(
+        DEFAULT_CONFIG_PATH, "--config", "-c", help="Path to YAML configuration."
+    ),
+    target_profile: str | None = typer.Option(
+        None,
+        "--target-profile",
+        "-t",
+        help="Optionally restore the sanitized copy into this profile.",
+    ),
+) -> None:
+    try:
+        result = run_sanitize(
+            profile_name=profile,
+            output_path=output,
+            config_path=config,
+            target_profile=target_profile,
+            console=typer.echo,
+        )
+        typer.echo(
+            f"Sanitized copy: {result['output_path']} ({result['total_masked']} values masked)"
         )
     except DBRestoreError as exc:
         _handle_error(exc)

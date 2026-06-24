@@ -73,9 +73,21 @@ def report_run(
     )
     try:
         with urllib.request.urlopen(request, timeout=_TIMEOUT_SECONDS) as response:
-            response.read()
-        logger.print(f"Reported backup run to control plane ({url})")
-        return True
+            status = getattr(response, "status", None) or response.getcode()
+            body = response.read(2048).decode("utf-8", "replace")
+        try:
+            accepted = json.loads(body).get("ok") is True
+        except ValueError:
+            accepted = False
+        if status in (200, 201) and accepted:
+            logger.print(f"Reported backup run to control plane ({url})")
+            return True
+        logger.print(
+            f"Control plane did not accept the run (HTTP {status}). "
+            "The endpoint may be behind deployment protection or auth — "
+            "the API must be publicly reachable."
+        )
+        return False
     except (urllib.error.URLError, OSError, TimeoutError, ValueError) as exc:
         logger.print(f"Control plane report failed (non-fatal): {exc}")
         return False

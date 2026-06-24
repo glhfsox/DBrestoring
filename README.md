@@ -9,6 +9,7 @@ IDEA : https://roadmap.sh/projects/database-backup-utility
 
 - Full, incremental, and differential backup modes (`--mode full|differential|incremental`) with content addressed removal of chunk duplicates 
 - Optional AES-256-GCM encryption of backup artifacts (`--passphrase` or `encryption.passphrase` in config)
+- Data masking to produce sanitized copies (`dbrestore sanitize`) — deterministic PII anonymization
 - Full backup and restore commands
 - Desktop GUI for profile editing, backup/restore actions, readiness dashboards, schedule management, env-file editing, and history browsing
 - Linux systemd and macOS launchd schedule installation for unattended backups
@@ -55,6 +56,36 @@ defaults:
 ```
 
 Works with `--mode full` only, not the chunked differential/incremental modes.
+
+## Data masking (sanitized copies)
+
+`dbrestore sanitize` pulls a snapshot of a database and applies PII masking rules
+to produce a safe, anonymized copy — useful for seeding dev/staging from prod.
+Masking is deterministic (the same value always maps to the same masked value, so
+joins stay consistent) and irreversible. The source database is never modified.
+
+```yaml
+profiles:
+  prod:
+    db_type: sqlite
+    database: ./prod.sqlite
+    masking:
+      salt: ${MASKING_SALT}          # optional; fixes outputs across runs
+      rules:
+        - { table: users, column: email, strategy: email }
+        - { table: users, column: full_name, strategy: name }
+        - { table: users, column: phone, strategy: phone }
+        - { table: cards, column: pan, strategy: redact }
+```
+
+```bash
+dbrestore sanitize --profile prod --output ./sanitized.sqlite
+dbrestore sanitize --profile prod --output ./sanitized.sqlite --target-profile staging
+```
+
+Strategies: `email`, `name`, `phone`, `hash`, `redact`, `constant`, `null`.
+Currently supports SQLite profiles; Postgres/MySQL masking (restore into a scratch
+target, mask, re-dump) is the next step.
 
 ## Installation
 
@@ -204,6 +235,7 @@ dbrestore status --profile local_pg
 dbrestore test-connection --profile local_pg
 dbrestore backup --profile local_pg
 dbrestore backup --profile local_pg --passphrase "correct horse battery staple"
+dbrestore sanitize --profile local_sqlite --output ./sanitized.sqlite
 dbrestore run-scheduled --profile local_pg
 dbrestore verify-latest --profile local_pg --target-profile local_pg_verify
 dbrestore restore --profile local_pg --input ./backups/local_pg/20260315T120000_abcd1234

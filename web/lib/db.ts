@@ -62,6 +62,21 @@ function init(): Promise<void> {
   return ready;
 }
 
+// True when a real (persistent) database is configured. Without DATABASE_URL the
+// client falls back to file:local.db, which is ephemeral on serverless hosts.
+export function isPersistent(): boolean {
+  const url = process.env.DATABASE_URL;
+  return Boolean(url && !url.startsWith("file:"));
+}
+
+export async function counts(): Promise<{ servers: number; runs: number }> {
+  await init();
+  const c = getClient();
+  const servers = await c.execute("SELECT COUNT(*) AS n FROM servers");
+  const runs = await c.execute("SELECT COUNT(*) AS n FROM backup_runs");
+  return { servers: Number(servers.rows[0]?.n ?? 0), runs: Number(runs.rows[0]?.n ?? 0) };
+}
+
 function num(value: unknown): number {
   return value == null ? 0 : Number(value);
 }

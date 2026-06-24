@@ -1,10 +1,30 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { recordRun, safeAudit } from "@/lib/db";
+import { counts, isPersistent, recordRun, safeAudit } from "@/lib/db";
 import { safeEqual } from "@/lib/auth";
 import { clientIp } from "@/lib/ip";
 
 export const runtime = "nodejs";
+
+// Health/diagnostics: confirms the DB is persistent and reachable, and how many
+// servers/runs are stored. No secrets. `persistent:false` means DATABASE_URL is
+// unset and data is being written to an ephemeral file that won't survive.
+export async function GET() {
+  let stored = { servers: 0, runs: 0 };
+  let dbError: string | null = null;
+  try {
+    stored = await counts();
+  } catch (err) {
+    dbError = err instanceof Error ? err.message : String(err);
+  }
+  return NextResponse.json({
+    persistent: isPersistent(),
+    ingestTokenConfigured: Boolean(process.env.INGEST_TOKEN),
+    servers: stored.servers,
+    runs: stored.runs,
+    dbError,
+  });
+}
 
 const runSchema = z.object({
   server: z.object({

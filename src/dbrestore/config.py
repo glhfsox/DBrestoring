@@ -115,6 +115,22 @@ class ControlPlaneModel(BaseModel):
         return self.token.get_secret_value()
 
 
+class MaskingRuleModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    table: str
+    column: str
+    strategy: Literal["redact", "null", "constant", "email", "name", "phone", "hash"] = "redact"
+    value: str | None = None
+
+
+class MaskingModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    salt: SecretStr | None = None
+    rules: list[MaskingRuleModel] = Field(default_factory=list)
+
+
 class DefaultsModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -125,6 +141,7 @@ class DefaultsModel(BaseModel):
     notifications: NotificationsModel | None = None
     encryption: EncryptionModel | None = None
     control_plane: ControlPlaneModel | None = None
+    masking: MaskingModel | None = None
 
 
 class RetentionModel(BaseModel):
@@ -235,6 +252,7 @@ class ProfileModel(BaseModel):
     notifications: NotificationsModel | None = None
     encryption: EncryptionModel | None = None
     control_plane: ControlPlaneModel | None = None
+    masking: MaskingModel | None = None
     _base_dir: Path = PrivateAttr(default=Path.cwd())
 
     @field_validator("db_type", mode="before")
@@ -434,6 +452,11 @@ class AppConfig(BaseModel):
         if profile.control_plane is not None:
             return profile.control_plane
         return self.defaults.control_plane
+
+    def masking_for(self, profile: ProfileModel) -> MaskingModel | None:
+        if profile.masking is not None:
+            return profile.masking
+        return self.defaults.masking
 
     def scheduled_profiles(self, selected_profile: str | None = None) -> dict[str, ProfileModel]:
         if selected_profile is not None:
