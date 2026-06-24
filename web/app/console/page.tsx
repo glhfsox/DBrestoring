@@ -1,35 +1,37 @@
-import Link from "next/link";
 import { requireSession } from "@/lib/auth";
 import { fleetOverview } from "@/lib/db";
-import { timeAgo } from "@/lib/format";
+import { evaluateState } from "@/lib/alerts";
+import { FleetTable, type FleetRow } from "@/components/console/FleetTable";
 
 export const dynamic = "force-dynamic";
-
-function StatusBadge({ status }: { status: string | null }) {
-  const map: Record<string, string> = {
-    success: "bg-brand-500/15 text-brand-300",
-    failed: "bg-red-500/15 text-red-300",
-  };
-  const cls = status ? (map[status] ?? "bg-zinc-700/30 text-zinc-300") : "bg-zinc-700/30 text-zinc-400";
-  return (
-    <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${cls}`}>
-      {status ?? "no runs"}
-    </span>
-  );
-}
 
 export default async function ConsoleHome() {
   requireSession();
   const servers = await fleetOverview();
+  const maxAgeMs = (Number(process.env.ALERT_MAX_AGE_HOURS) || 26) * 3_600_000;
+  const now = Date.now();
+
+  const rows: FleetRow[] = servers.map((s) => ({
+    id: s.id,
+    name: s.name,
+    state: s.runCount === 0 ? "none" : evaluateState(s, maxAgeMs, now),
+    lastSuccessAt: s.lastSuccessAt,
+    lastSeenAt: s.lastSeenAt,
+    runCount: s.runCount,
+  }));
+
+  const unhealthy = rows.filter((r) => r.state === "overdue" || r.state === "failing").length;
 
   return (
     <div>
       <div className="flex items-baseline justify-between">
         <h1 className="text-2xl font-bold text-white">Fleet</h1>
-        <span className="text-sm text-zinc-500">{servers.length} server(s)</span>
+        <span className="text-sm text-zinc-500">
+          {rows.length} server(s){unhealthy > 0 ? ` · ${unhealthy} need attention` : ""}
+        </span>
       </div>
 
-      {servers.length === 0 ? (
+      {rows.length === 0 ? (
         <div className="card mt-6">
           <p className="text-zinc-300">No servers have reported yet.</p>
           <p className="mt-2 text-sm text-zinc-400">
@@ -38,32 +40,8 @@ export default async function ConsoleHome() {
           </p>
         </div>
       ) : (
-        <div className="mt-6 overflow-hidden rounded-2xl border border-zinc-800/80">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-zinc-900/60 text-zinc-400">
-              <tr>
-                <th className="px-4 py-3 font-medium">Server</th>
-                <th className="px-4 py-3 font-medium">Last backup</th>
-                <th className="px-4 py-3 font-medium">Last seen</th>
-                <th className="px-4 py-3 font-medium">Runs</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-800/80">
-              {servers.map((s) => (
-                <tr key={s.id} className="hover:bg-zinc-900/40">
-                  <td className="px-4 py-3">
-                    <Link href={`/console/servers/${encodeURIComponent(s.id)}`} className="font-medium text-zinc-100 hover:text-brand-300">
-                      {s.name}
-                    </Link>
-                    <div className="text-xs text-zinc-500">{s.id}</div>
-                  </td>
-                  <td className="px-4 py-3"><StatusBadge status={s.lastStatus} /></td>
-                  <td className="px-4 py-3 text-zinc-400">{timeAgo(s.lastSeenAt)}</td>
-                  <td className="px-4 py-3 text-zinc-400">{s.runCount}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="mt-6">
+          <FleetTable rows={rows} />
         </div>
       )}
     </div>

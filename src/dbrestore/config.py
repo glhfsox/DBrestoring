@@ -129,6 +129,9 @@ class MaskingModel(BaseModel):
 
     salt: SecretStr | None = None
     rules: list[MaskingRuleModel] = Field(default_factory=list)
+    # Default destination so scheduled `dbrestore sanitize --profile X` needs no flags.
+    target_profile: str | None = None
+    output: str | None = None
 
 
 class DefaultsModel(BaseModel):

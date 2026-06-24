@@ -1,0 +1,11 @@
+[Unit]
+Description=Scheduled dbrestore sanitize for profile %i
+
+[Timer]
+# Nightly at 04:00 (after backups). Edit to taste; see `man systemd.time`.
+OnCalendar=*-*-* 04:00:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

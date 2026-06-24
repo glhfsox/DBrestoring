@@ -1,0 +1,26 @@
+[Unit]
+Description=dbrestore scheduled sanitize (profile %i)
+Documentation=https://github.com/glhfsox/DBrestoring
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+
+EnvironmentFile=/etc/dbrestore/dbrestore.env
+
+ExecStartPre=-/usr/bin/docker pull ghcr.io/glhfsox/dbrestoring:latest
+
+# Destination (output file and/or target profile) comes from the `masking` block
+# in dbrestore.yaml, so no extra flags are needed here.
+ExecStart=/usr/bin/docker run --rm \
+    --name dbrestore-sanitize-%i \
+    --network host \
+    --env-file /etc/dbrestore/dbrestore.env \
+    -v /etc/dbrestore/dbrestore.yaml:/work/dbrestore.yaml:ro \
+    -v /var/lib/dbrestore/backups:/work/backups \
+    ghcr.io/glhfsox/dbrestoring:latest \
+    sanitize --profile %i
+
+TimeoutStartSec=3600

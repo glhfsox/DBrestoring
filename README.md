@@ -71,6 +71,8 @@ profiles:
     database: ./prod.sqlite
     masking:
       salt: ${MASKING_SALT}          # optional; fixes outputs across runs
+      target_profile: staging        # optional default destination (for scheduling)
+      output: ./sanitized.sqlite      # optional default output path
       rules:
         - { table: users, column: email, strategy: email }
         - { table: users, column: full_name, strategy: name }
@@ -93,6 +95,11 @@ SQLite is masked directly on the dumped file. Postgres/MySQL/MariaDB go through 
 scratch `--target-profile`: dbrestore backs up the source, restores it into the
 scratch database, masks it there with SQL, and (with `--output`) dumps the
 sanitized result. The source database is never modified.
+
+**Scheduling:** put the destination in the `masking` block (`output:` and/or
+`target_profile:`) so the unattended command is just `dbrestore sanitize --profile X`.
+[deploy/](deploy/) ships `dbrestore-sanitize@.{service,timer}` to run it nightly
+(e.g. a fresh anonymized dev DB every morning).
 
 ## Installation
 

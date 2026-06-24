@@ -158,6 +158,7 @@ export type FleetServer = {
   lastSeenAt: number;
   lastStatus: string | null;
   lastFinishedAt: string | null;
+  lastSuccessAt: number | null;
   runCount: number;
 };
 
@@ -169,6 +170,7 @@ export async function fleetOverview(): Promise<FleetServer[]> {
       s.id, s.name, s.last_seen_at,
       (SELECT r.status FROM backup_runs r WHERE r.server_id = s.id ORDER BY r.reported_at DESC LIMIT 1) AS last_status,
       (SELECT r.finished_at FROM backup_runs r WHERE r.server_id = s.id ORDER BY r.reported_at DESC LIMIT 1) AS last_finished,
+      (SELECT MAX(reported_at) FROM backup_runs r WHERE r.server_id = s.id AND r.status = 'success') AS last_success,
       (SELECT COUNT(*) FROM backup_runs r WHERE r.server_id = s.id) AS run_count
     FROM servers s
     ORDER BY s.last_seen_at DESC
@@ -179,6 +181,7 @@ export async function fleetOverview(): Promise<FleetServer[]> {
     lastSeenAt: num(row.last_seen_at),
     lastStatus: strOrNull(row.last_status),
     lastFinishedAt: strOrNull(row.last_finished),
+    lastSuccessAt: numOrNull(row.last_success),
     runCount: num(row.run_count),
   }));
 }

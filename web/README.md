@@ -64,7 +64,10 @@ Set up Turso (free) with `turso db create dbrestore` then `turso db show` /
 
 A server reports a run when its config has a `control_plane` block (see the root
 README). The dashboard at `/console` is gated by the admin password; the
-ingestion endpoint is gated by `INGEST_TOKEN`.
+ingestion endpoint is gated by `INGEST_TOKEN`. The fleet view color-codes each
+server (healthy / overdue / failing, using `ALERT_MAX_AGE_HOURS`), shows the time
+since the last successful backup, and has a filter box; each server page shows its
+health and recent runs.
 
 `/console/audit` shows a security audit log — console sign-ins (success and
 failure) and rejected agent requests, each with timestamp and client IP.

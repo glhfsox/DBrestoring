@@ -87,6 +87,13 @@ def run_sanitize(
         redactor.add(masking.salt.get_secret_value())
     key = derive_key(salt)
 
+    # Fall back to the destination configured in the masking block, so a scheduled
+    # `dbrestore sanitize --profile X` works with no extra flags.
+    if output_path is None and masking.output:
+        output_path = Path(masking.output)
+    if target_profile is None and masking.target_profile:
+        target_profile = masking.target_profile
+
     try:
         if profile.db_type == "sqlite":
             counts = _sanitize_sqlite(

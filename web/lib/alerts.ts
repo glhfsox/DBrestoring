@@ -4,7 +4,11 @@ export type AlertState = "ok" | "overdue" | "failing";
 
 // "overdue" = no successful backup within the window (stopped or persistently
 // failing); "failing" = recent success but the latest run failed.
-export function evaluateState(h: ServerHealth, maxAgeMs: number, now: number): AlertState {
+export function evaluateState(
+  h: { lastSuccessAt: number | null; lastStatus: string | null },
+  maxAgeMs: number,
+  now: number,
+): AlertState {
   if (h.lastSuccessAt == null || now - h.lastSuccessAt > maxAgeMs) return "overdue";
   if (h.lastStatus === "failed") return "failing";
   return "ok";

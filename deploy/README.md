@@ -95,6 +95,23 @@ options:
   It runs at 03:00 by default — an hour after the 02:00 backup — and uploads only
   new run directories (`copy --immutable`).
 
+## Scheduled sanitize (anonymized copies on a cadence)
+
+To refresh an anonymized dev/staging copy automatically, set the destination in
+the profile's `masking` block (`output:` and/or `target_profile:`), then install
+the sanitize units:
+
+```bash
+sudo cp deploy/dbrestore-sanitize@.service deploy/dbrestore-sanitize@.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now dbrestore-sanitize@prod.timer
+# test once:
+sudo systemctl start dbrestore-sanitize@prod.service
+```
+
+It runs nightly at 04:00 (after the 02:00 backup) and reads the masking rules +
+destination from `dbrestore.yaml`, so no extra flags are needed.
+
 ## Notes
 
 - **Change the schedule** by editing `OnCalendar=` in the timer unit, then

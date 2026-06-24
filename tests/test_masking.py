@@ -260,3 +260,68 @@ def test_run_sanitize_mongo_not_supported(tmp_path):
     cfg = _engine_config(tmp_path, "mongo")
     with pytest.raises(DBRestoreError, match="not supported"):
         run_sanitize(profile_name="src", config_path=cfg)
+
+
+def test_run_sanitize_uses_config_output_when_arg_omitted(tmp_path):
+    source = tmp_path / "prod.sqlite"
+    _seed(source)
+    out = tmp_path / "from-config.sqlite"
+    cfg = tmp_path / "dbrestore.yaml"
+    cfg.write_text(
+        f"""
+version: 1
+defaults:
+  output_dir: {tmp_path / "backups"}
+  log_dir: {tmp_path / "logs"}
+profiles:
+  prod:
+    db_type: sqlite
+    database: {source}
+    masking:
+      output: {out}
+      rules:
+        - {{ table: users, column: email, strategy: email }}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    # No output_path / target_profile args — both come from config.
+    result = run_sanitize(profile_name="prod", config_path=cfg)
+
+    assert result["output_path"] == str(out)
+    assert out.exists()
+    with sqlite3.connect(out) as conn:
+        email = conn.execute("SELECT email FROM users WHERE id=1").fetchone()[0]
+    assert "@example.com" in email
+
+
+def test_run_sanitize_uses_config_target_when_arg_omitted(tmp_path):
+    source = tmp_path / "prod.sqlite"
+    _seed(source)
+    cfg = tmp_path / "dbrestore.yaml"
+    cfg.write_text(
+        f"""
+version: 1
+defaults:
+  output_dir: {tmp_path / "backups"}
+  log_dir: {tmp_path / "logs"}
+profiles:
+  prod:
+    db_type: sqlite
+    database: {source}
+    masking:
+      target_profile: staging
+      rules:
+        - {{ table: users, column: email, strategy: email }}
+  staging:
+    db_type: sqlite
+    database: {tmp_path / "staging.sqlite"}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    run_sanitize(profile_name="prod", config_path=cfg)
+
+    with sqlite3.connect(tmp_path / "staging.sqlite") as conn:
+        email = conn.execute("SELECT email FROM users WHERE id=1").fetchone()[0]
+    assert "@example.com" in email
