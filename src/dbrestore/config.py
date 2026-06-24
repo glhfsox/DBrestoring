@@ -102,6 +102,19 @@ class EncryptionModel(BaseModel):
         return self.passphrase.get_secret_value()
 
 
+class ControlPlaneModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    url: str
+    token: SecretStr
+    server_id: str | None = None
+    server_name: str | None = None
+
+    @property
+    def token_value(self) -> str:
+        return self.token.get_secret_value()
+
+
 class DefaultsModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -111,6 +124,7 @@ class DefaultsModel(BaseModel):
     retention: RetentionModel | None = None
     notifications: NotificationsModel | None = None
     encryption: EncryptionModel | None = None
+    control_plane: ControlPlaneModel | None = None
 
 
 class RetentionModel(BaseModel):
@@ -220,6 +234,7 @@ class ProfileModel(BaseModel):
     verification: VerificationModel | None = None
     notifications: NotificationsModel | None = None
     encryption: EncryptionModel | None = None
+    control_plane: ControlPlaneModel | None = None
     _base_dir: Path = PrivateAttr(default=Path.cwd())
 
     @field_validator("db_type", mode="before")
@@ -414,6 +429,11 @@ class AppConfig(BaseModel):
         if profile.notifications is not None:
             return profile.notifications
         return self.defaults.notifications
+
+    def control_plane_for(self, profile: ProfileModel) -> ControlPlaneModel | None:
+        if profile.control_plane is not None:
+            return profile.control_plane
+        return self.defaults.control_plane
 
     def scheduled_profiles(self, selected_profile: str | None = None) -> dict[str, ProfileModel]:
         if selected_profile is not None:

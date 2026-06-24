@@ -19,6 +19,7 @@ from dbrestore.chunking import (
     write_chunks_manifest,
 )
 from dbrestore.config import DEFAULT_CONFIG_PATH, AppConfig, load_config
+from dbrestore.control_plane import report_run
 from dbrestore.encryption import ENCRYPTED_EXTENSION, decrypt_file, encrypt_file, is_encrypted
 from dbrestore.errors import ArtifactError, ConfigError
 from dbrestore.logging import RunLogger
@@ -85,6 +86,10 @@ def run_backup(
     encryption = config.encryption_for(profile, cli_passphrase=passphrase)
     if encryption is not None:
         redactor.add(encryption.passphrase_value)
+
+    control_plane = config.control_plane_for(profile)
+    if control_plane is not None:
+        redactor.add(control_plane.token_value)
 
     chunked_mode = mode != "full"
     if chunked_mode and not isinstance(storage, LocalStorageBackend):
@@ -201,6 +206,16 @@ def run_backup(
         logger.log_event("backup.completed", result)
         notify_event(notification_settings, "backup.completed", result, logger, redactor)
         logger.print(f"Backup completed: {stored_run.artifact_path}")
+        if control_plane is not None:
+            report_payload = dict(result)
+            report_payload["size_bytes"] = None
+            artifact_path = stored_run.artifact_path
+            if artifact_path:
+                try:
+                    report_payload["size_bytes"] = Path(artifact_path).stat().st_size
+                except OSError:
+                    pass
+            report_run(control_plane, report_payload, "success", logger)
         emit_progress(progress, message="Backup completed", percent=100)
         return result
     except Exception as exc:
@@ -214,6 +229,20 @@ def run_backup(
         }
         logger.log_event("backup.failed", payload)
         notify_event(notification_settings, "backup.failed", payload, logger, redactor)
+        if control_plane is not None:
+            report_run(
+                control_plane,
+                {
+                    "run_id": prepared.run_id,
+                    "profile": profile_name,
+                    "db_type": profile.db_type,
+                    "backup_type": mode,
+                    "started_at": format_timestamp(started_at),
+                },
+                "failed",
+                logger,
+                error=message,
+            )
         raise wrap_error(message, exc) from exc
 
 

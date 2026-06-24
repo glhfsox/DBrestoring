@@ -1,10 +1,21 @@
 import { NextResponse } from "next/server";
 import { contactSchema } from "@/lib/validation";
 import { verifyTurnstile } from "@/lib/turnstile";
-import { sendLeadEmail } from "@/lib/email";
+import { isEmailConfigured, sendLeadEmail } from "@/lib/email";
 import { rateLimit } from "@/lib/rateLimit";
 
 export const runtime = "nodejs";
+
+// Health check: confirms whether email + spam protection are configured on this
+// deployment. Returns booleans only — never secret values.
+export function GET() {
+  return NextResponse.json({
+    emailConfigured: isEmailConfigured(),
+    turnstileConfigured: Boolean(
+      process.env.TURNSTILE_SECRET_KEY && process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY,
+    ),
+  });
+}
 
 export async function POST(req: Request) {
   const ip =

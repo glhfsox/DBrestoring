@@ -4,8 +4,11 @@ export async function verifyTurnstile(
   ip: string,
 ): Promise<boolean> {
   const secret = process.env.TURNSTILE_SECRET_KEY;
-  if (!secret) {
-    console.warn("[turnstile] TURNSTILE_SECRET_KEY not set — skipping spam verification.");
+  const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
+  // Both keys are required: without the public site key the browser renders no
+  // widget and produces no token, so enforcing here would reject every visitor.
+  if (!secret || !siteKey) {
+    console.warn("[turnstile] not fully configured (need both keys) — skipping spam check.");
     return true;
   }
   if (!token) return false;

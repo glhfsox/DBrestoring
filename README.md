@@ -96,6 +96,22 @@ docker run --rm \
 Add `-e DBRESTORE_PASSPHRASE` to pass an encryption passphrase, and `--network host`
 to reach a database on the host. The GUI is not in the image.
 
+## Central reporting (control plane)
+
+A server can report each backup to a central dashboard. Add a `control_plane`
+block and every run posts its outcome (status, size, duration) to the fleet view:
+
+```yaml
+defaults:
+  control_plane:
+    url: https://your-console.vercel.app
+    token: ${DBRESTORE_CP_TOKEN}   # must match the console's INGEST_TOKEN
+    server_id: prod-db-1           # optional; defaults to the hostname
+```
+
+Reporting is best-effort — if the console is unreachable the backup still
+succeeds. The console (dashboard + ingestion API) lives in [web/](web/).
+
 ## Running 24/7 on a server
 
 For unattended scheduled backups on a Linux server, see [deploy/](deploy/): the
