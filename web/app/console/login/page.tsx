@@ -12,12 +12,14 @@ export default function ConsoleLoginPage() {
     e.preventDefault();
     setStatus("loading");
     setError("");
-    const password = String(new FormData(e.currentTarget).get("password") ?? "");
+    const form = new FormData(e.currentTarget);
+    const username = String(form.get("username") ?? "");
+    const password = String(form.get("password") ?? "");
     try {
       const res = await fetch("/api/console/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ username, password }),
       });
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { error?: string };
@@ -34,8 +36,22 @@ export default function ConsoleLoginPage() {
   return (
     <div className="mx-auto max-w-sm pt-10">
       <h1 className="text-2xl font-bold text-white">Sign in</h1>
-      <p className="mt-2 text-sm text-zinc-400">Enter the admin password to view the fleet.</p>
+      <p className="mt-2 text-sm text-zinc-400">Sign in to view the fleet.</p>
       <form onSubmit={onSubmit} className="card mt-6 space-y-4">
+        <div>
+          <label htmlFor="username" className="mb-1.5 block text-sm font-medium text-zinc-300">
+            Username
+          </label>
+          <input
+            id="username"
+            name="username"
+            required
+            autoFocus
+            autoComplete="username"
+            defaultValue="admin"
+            className="w-full rounded-lg border border-zinc-700 bg-zinc-900/60 px-3.5 py-2.5 text-sm text-zinc-100 focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
+          />
+        </div>
         <div>
           <label htmlFor="password" className="mb-1.5 block text-sm font-medium text-zinc-300">
             Password
@@ -45,7 +61,7 @@ export default function ConsoleLoginPage() {
             name="password"
             type="password"
             required
-            autoFocus
+            autoComplete="current-password"
             className="w-full rounded-lg border border-zinc-700 bg-zinc-900/60 px-3.5 py-2.5 text-sm text-zinc-100 focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
           />
         </div>

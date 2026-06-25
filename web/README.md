@@ -40,9 +40,9 @@ Control plane (required for `/console` and ingestion):
 | --- | --- |
 | `DATABASE_URL` | libSQL URL. Defaults to `file:local.db` for dev; use a `libsql://…` Turso URL in production |
 | `DATABASE_AUTH_TOKEN` | Turso auth token (omit for the local file) |
-| `INGEST_TOKEN` | Bearer token agents present to `POST /api/v1/runs` |
+| `INGEST_TOKEN` | Legacy/fallback shared agent token. Prefer per-server tokens created at `/console/tokens`; this still works if set. |
 | `AUTH_SECRET` | Secret used to sign admin session cookies |
-| `ADMIN_PASSWORD` | Password for the `/console` login |
+| `ADMIN_PASSWORD` | Bootstrap admin password (username `admin`). Create more users/roles at `/console/users`. |
 
 Missed-backup alerting (optional):
 
@@ -63,8 +63,14 @@ Set up Turso (free) with `turso db create dbrestore` then `turso db show` /
 ## Control plane
 
 A server reports a run when its config has a `control_plane` block (see the root
-README). The dashboard at `/console` is gated by the admin password; the
-ingestion endpoint is gated by `INGEST_TOKEN`. The fleet view color-codes each
+README). The dashboard at `/console` is gated by the admin password.
+
+**Agent tokens:** create a revocable, per-server token at `/console/tokens` and put
+it in that server's `control_plane.token`. Tokens are stored hashed (shown once),
+authenticated per request, and can be revoked individually. The legacy shared
+`INGEST_TOKEN` still works as a fallback if set.
+
+The fleet view color-codes each
 server (healthy / overdue / failing, using `ALERT_MAX_AGE_HOURS`), shows the time
 since the last successful backup, and has a filter box; each server page shows its
 health and recent runs.
@@ -99,3 +105,15 @@ Headers (CSP, HSTS, X-Frame-Options, …) are set in `next.config.mjs`. The cont
 API validates with Zod, drops honeypot submissions, verifies Turnstile, and
 rate-limits per IP. The limiter is in-memory per instance — back it with Redis for
 a strict global limit.
+
+Console / control-plane hardening:
+
+- **Accounts & roles** — multi-user login with `admin` (manage tokens + users) and
+  `viewer` (read-only) roles. `ADMIN_PASSWORD` is the bootstrap `admin`; more users
+  are created at `/console/users`. Passwords are stored hashed with scrypt.
+- **Agent tokens** — per-server, hashed at rest, revocable (`/console/tokens`).
+- **Brute-force** — login is rate-limited per IP.
+- **Session** — HMAC-signed, httpOnly + Secure + SameSite=Lax cookie, with a
+  server-side max-age so old/replayed tokens are rejected.
+- **CSRF** — SameSite=Lax plus an Origin check on every state-changing POST.
+- **Injection** — all SQL is parameterized; agent/user input is Zod-validated.

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { counts, isPersistent, recordRun, safeAudit } from "@/lib/db";
+import { authenticateAgentToken, counts, isPersistent, recordRun, safeAudit } from "@/lib/db";
 import { safeEqual } from "@/lib/auth";
 import { clientIp } from "@/lib/ip";
 
@@ -51,12 +51,17 @@ function bearer(req: Request): string {
 }
 
 export async function POST(req: Request) {
-  const expected = process.env.INGEST_TOKEN;
-  if (!expected) {
-    return NextResponse.json({ error: "Ingestion is not configured." }, { status: 503 });
-  }
   const token = bearer(req);
-  if (!token || !safeEqual(token, expected)) {
+  // Per-server tokens first; fall back to the legacy shared INGEST_TOKEN if set.
+  let authorized = false;
+  if (token) {
+    if (await authenticateAgentToken(token)) {
+      authorized = true;
+    } else if (process.env.INGEST_TOKEN && safeEqual(token, process.env.INGEST_TOKEN)) {
+      authorized = true;
+    }
+  }
+  if (!authorized) {
     await safeAudit({
       event: "ingest.unauthorized",
       actor: "agent",

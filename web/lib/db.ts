@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { createClient, type Client } from "@libsql/client";
 
 // libSQL: a local file in dev (DATABASE_URL=file:local.db, the default) and
@@ -60,6 +61,24 @@ async function ensureSchema(): Promise<void> {
       server_id TEXT PRIMARY KEY,
       state TEXT NOT NULL,
       since INTEGER NOT NULL
+    )
+  `);
+  await c.execute(`
+    CREATE TABLE IF NOT EXISTS agent_tokens (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      token_hash TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      last_used_at INTEGER,
+      revoked_at INTEGER
+    )
+  `);
+  await c.execute(`
+    CREATE TABLE IF NOT EXISTS users (
+      username TEXT PRIMARY KEY,
+      password_hash TEXT NOT NULL,
+      role TEXT NOT NULL,
+      created_at INTEGER NOT NULL
     )
   `);
 }
@@ -321,4 +340,114 @@ export async function setAlertState(serverId: string, state: string, since: numb
           ON CONFLICT(server_id) DO UPDATE SET state = excluded.state, since = excluded.since`,
     args: [serverId, state, since],
   });
+}
+
+export type AgentToken = {
+  id: string;
+  name: string;
+  createdAt: number;
+  lastUsedAt: number | null;
+  revokedAt: number | null;
+};
+
+function hashToken(token: string): string {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+// Returns the plaintext token ONCE; only its hash is stored.
+export async function createAgentToken(name: string): Promise<{ id: string; token: string }> {
+  await init();
+  const id = crypto.randomBytes(6).toString("hex");
+  const token = `dbr_${id}_${crypto.randomBytes(24).toString("hex")}`;
+  await getClient().execute({
+    sql: `INSERT INTO agent_tokens (id, name, token_hash, created_at) VALUES (?, ?, ?, ?)`,
+    args: [id, name, hashToken(token), Date.now()],
+  });
+  return { id, token };
+}
+
+export async function listAgentTokens(): Promise<AgentToken[]> {
+  await init();
+  const res = await getClient().execute(
+    "SELECT id, name, created_at, last_used_at, revoked_at FROM agent_tokens ORDER BY created_at DESC",
+  );
+  return res.rows.map((row) => ({
+    id: str(row.id),
+    name: str(row.name),
+    createdAt: num(row.created_at),
+    lastUsedAt: numOrNull(row.last_used_at),
+    revokedAt: numOrNull(row.revoked_at),
+  }));
+}
+
+export async function revokeAgentToken(id: string): Promise<void> {
+  await init();
+  await getClient().execute({
+    sql: `UPDATE agent_tokens SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL`,
+    args: [Date.now(), id],
+  });
+}
+
+// Validates a presented agent token. Returns the token id (and bumps last_used_at)
+// when valid and not revoked; otherwise null.
+export async function authenticateAgentToken(token: string): Promise<{ id: string } | null> {
+  await init();
+  const res = await getClient().execute({
+    sql: `SELECT id FROM agent_tokens WHERE token_hash = ? AND revoked_at IS NULL`,
+    args: [hashToken(token)],
+  });
+  const row = res.rows[0];
+  if (!row) return null;
+  const id = str(row.id);
+  await getClient().execute({
+    sql: `UPDATE agent_tokens SET last_used_at = ? WHERE id = ?`,
+    args: [Date.now(), id],
+  });
+  return { id };
+}
+
+export type ConsoleUser = { username: string; role: string; createdAt: number };
+
+// Create or reset a console user (upsert by username).
+export async function upsertUser(
+  username: string,
+  passwordHash: string,
+  role: string,
+): Promise<void> {
+  await init();
+  await getClient().execute({
+    sql: `INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)
+          ON CONFLICT(username) DO UPDATE SET password_hash = excluded.password_hash, role = excluded.role`,
+    args: [username, passwordHash, role, Date.now()],
+  });
+}
+
+export async function getUserCredentials(
+  username: string,
+): Promise<{ passwordHash: string; role: string } | null> {
+  await init();
+  const res = await getClient().execute({
+    sql: `SELECT password_hash, role FROM users WHERE username = ?`,
+    args: [username],
+  });
+  const row = res.rows[0];
+  if (!row) return null;
+  return { passwordHash: str(row.password_hash), role: str(row.role) };
+}
+
+export async function listUsers(): Promise<ConsoleUser[]> {
+  await init();
+  const res = await getClient().execute(
+    "SELECT username, role, created_at FROM users ORDER BY created_at",
+  );
+  return res.rows.map((row) => ({
+    username: str(row.username),
+    role: str(row.role),
+    createdAt: num(row.created_at),
+  }));
+}
+
+export async function deleteUser(username: string): Promise<void> {
+  await init();
+  await getClient().execute({ sql: `DELETE FROM users WHERE username = ?`, args: [username] });
 }

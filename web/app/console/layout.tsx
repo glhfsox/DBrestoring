@@ -20,6 +20,16 @@ export default function ConsoleLayout({ children }: { children: React.ReactNode 
                 <Link href="/console" className="text-zinc-400 hover:text-white">
                   Fleet
                 </Link>
+                {session.role === "admin" && (
+                  <>
+                    <Link href="/console/tokens" className="text-zinc-400 hover:text-white">
+                      Tokens
+                    </Link>
+                    <Link href="/console/users" className="text-zinc-400 hover:text-white">
+                      Users
+                    </Link>
+                  </>
+                )}
                 <Link href="/console/audit" className="text-zinc-400 hover:text-white">
                   Audit
                 </Link>
@@ -27,9 +37,14 @@ export default function ConsoleLayout({ children }: { children: React.ReactNode 
             )}
           </div>
           {session && (
-            <form action="/api/console/logout" method="post">
-              <button className="text-sm text-zinc-400 hover:text-white">Sign out</button>
-            </form>
+            <div className="flex items-center gap-4">
+              <span className="hidden text-sm text-zinc-500 sm:inline">
+                {session.sub} · {session.role}
+              </span>
+              <form action="/api/console/logout" method="post">
+                <button className="text-sm text-zinc-400 hover:text-white">Sign out</button>
+              </form>
+            </div>
           )}
         </div>
       </header>
